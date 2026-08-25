@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from agent_memory.core.models import Memory
+from agent_memory.core.temporal import temporal_penalty
 from agent_memory.db.models import MemoryRow
 
 
@@ -84,6 +85,7 @@ class MemoryRepository:
             toks = set((r.content or "").lower().split()) | set((r.title or "").lower().split())
             overlap = len(ql & toks) / max(len(ql), 1)
             fused = 0.7 * max(dense, 0.0) + 0.3 * overlap
+            fused -= temporal_penalty(query_text, r.content)
             scored.append((fused, dense, r))
 
         scored.sort(key=lambda x: x[0], reverse=True)
