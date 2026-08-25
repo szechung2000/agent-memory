@@ -1,0 +1,90 @@
+{
+  "name": "multi-hop-reasoning",
+  "description": "Facts require linking multiple memories to answer. Tests consolidation + multi-hop retrieval.",
+  "cases": [
+    {
+      "id": "sally-cpa-01",
+      "facts": [
+        "Sally is an accountant at EY",
+        "Sally passed the CPA exam soon after she joined EY",
+        "Sally joined EY in 2006",
+        "Sam has been friends with Sally since college"
+      ],
+      "question": "When Sam first knew Sally, did Sally have her CPA?",
+      "reasoning_chain": ["Sam knows Sally since college", "college predates 2006", "CPA came after joining EY in 2006", "=> No"],
+      "expected_answer": "No — Sam knew Sally in college, which was before she joined EY in 2006, and she only passed the CPA after joining EY.",
+      "required_memories": ["college", "joined EY in 2006", "passed CPA after EY"],
+      "multi_hop": true
+    },
+    {
+      "id": "sally-work-02",
+      "facts": [
+        "Sally is an accountant at EY",
+        "Sally passed the CPA exam soon after she joined EY",
+        "Sally joined EY in 2006",
+        "Sam has been friends with Sally since college"
+      ],
+      "question": "Where does Sally work?",
+      "reasoning_chain": ["direct fact"],
+      "expected_answer": "EY (as an accountant)",
+      "required_memories": ["accountant at EY"],
+      "multi_hop": false
+    },
+    {
+      "id": "sally-cpa-date-03",
+      "facts": [
+        "Sally is an accountant at EY",
+        "Sally passed the CPA exam soon after she joined EY",
+        "Sally joined EY in 2006",
+        "Sam has been friends with Sally since college"
+      ],
+      "question": "When did Sally get her CPA?",
+      "reasoning_chain": ["joined EY 2006", "CPA soon after joining", "=> shortly after 2006"],
+      "expected_answer": "Shortly after 2006 (soon after she joined EY).",
+      "required_memories": ["joined EY in 2006", "CPA soon after joining"],
+      "multi_hop": true
+    },
+    {
+      "id": "commute-04",
+      "facts": [
+        "Maria lives in Jersey City",
+        "Maria's office is in Manhattan's Financial District",
+        "The PATH train runs from Jersey City to the Financial District in about 25 minutes",
+        "Maria dislikes driving into Manhattan because of parking costs"
+      ],
+      "question": "How does Maria most likely get to work, and why?",
+      "reasoning_chain": ["lives JC", "office FiDi", "PATH connects them fast", "dislikes driving", "=> PATH train"],
+      "expected_answer": "The PATH train — it connects Jersey City to the Financial District directly (~25 min), and she avoids driving due to parking costs.",
+      "required_memories": ["Jersey City", "Financial District office", "PATH train", "dislikes driving"],
+      "multi_hop": true
+    },
+    {
+      "id": "paper-deadline-05",
+      "facts": [
+        "Ken is submitting a paper to NeurIPS",
+        "NeurIPS 2026 submissions close May 15",
+        "Ken starts experiments two months before any deadline",
+        "Today Ken mentioned his paper is still in draft"
+      ],
+      "question": "When did Ken most likely start his experiments?",
+      "reasoning_chain": ["deadline May 15", "starts 2 months before deadline", "=> mid-March"],
+      "expected_answer": "Around mid-March 2026 (two months before the May 15 deadline).",
+      "required_memories": ["May 15 deadline", "two months before"],
+      "multi_hop": true
+    },
+    {
+      "id": "family-conflict-06",
+      "facts": [
+        "Priya's daughter has a piano recital on June 3 at 6pm",
+        "Priya has a work offsite on June 3",
+        "The offsite ends at 4pm in Stamford",
+        "Stamford to Priya's home is about an hour by train"
+      ],
+      "question": "Can Priya make it to the recital on time?",
+      "reasoning_chain": ["offsite ends 4pm", "1h train home", "=> home ~5pm", "recital 6pm", "=> yes, tight"],
+      "expected_answer": "Yes, but tight: offsite ends 4pm, ~1 hour home puts her there around 5pm, one hour before the 6pm recital.",
+      "required_memories": ["offsite 4pm", "one hour train", "recital 6pm"],
+      "multi_hop": true
+    }
+  ]
+}

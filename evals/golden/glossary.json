@@ -1,0 +1,68 @@
+{
+  "name": "glossary-academic",
+  "description": "Glossary-style: term definition stored first, then three question types per term — direct definition, surrounding concept, superseding term.",
+  "cases": [
+    {
+      "id": "gl-attention-direct",
+      "glossary": [
+        "Self-attention: a mechanism where each token in a sequence computes a weighted representation of all other tokens, with weights from query-key dot products scaled by sqrt(d_k). Core building block of Transformer models.",
+        "RNN: a recurrent architecture processing tokens sequentially while maintaining a hidden state; suffers from vanishing gradients on long sequences.",
+        "Mamba: a state-space-model architecture with selective scan giving linear-time sequence modeling, positioned as an alternative to Transformers."
+      ],
+      "question": "What is self-attention?",
+      "question_type": "direct_definition",
+      "expected_answer": "Each token computes a weighted representation of all other tokens using scaled query-key dot products; the core Transformer mechanism.",
+      "expected_memory_id_of": "Self-attention:"
+    },
+    {
+      "id": "gl-attention-context",
+      "glossary": [
+        "Self-attention: a mechanism where each token in a sequence computes a weighted representation of all other tokens, with weights from query-key dot products scaled by sqrt(d_k). Core building block of Transformer models.",
+        "Transformer: an architecture built entirely on self-attention, removing recurrence and enabling full parallelization during training.",
+        "KV cache: storing key/value tensors of past tokens so autoregressive decoding avoids recomputation."
+      ],
+      "question": "Why do Transformers parallelize training better than RNNs?",
+      "question_type": "surrounding_concept",
+      "reasoning_chain": ["self-attention sees all tokens at once", "Transformers are built on self-attention", "no recurrence => parallel"],
+      "expected_answer": "Because self-attention lets every token attend to every other token in one pass, removing the sequential recurrence RNNs require.",
+      "required_memories": ["Self-attention", "Transformer"]
+    },
+    {
+      "id": "gl-rnn-superseded",
+      "glossary": [
+        "RNN: a recurrent architecture processing tokens sequentially while maintaining a hidden state; suffers from vanishing gradients on long sequences.",
+        "LSTM: an RNN variant with gating cells that mitigates vanishing gradients for longer dependencies.",
+        "Transformer: an architecture built entirely on self-attention, removing recurrence; largely replaced LSTM/RNN models in NLP after 2017."
+      ],
+      "question": "What replaced LSTMs as the dominant NLP architecture?",
+      "question_type": "superseding_term",
+      "expected_answer": "The Transformer — self-attention based, replaced recurrent architectures after 2017.",
+      "required_memories": ["LSTM", "Transformer"]
+    },
+    {
+      "id": "gl-mapreduce-superseded",
+      "glossary": [
+        "MapReduce: a distributed batch-processing framework where jobs are expressed as map and reduce phases over shuffled intermediate data; batch-oriented.",
+        "Spark: an in-memory distributed computation engine supporting iterative and interactive workloads with RDDs/DataFrames; generally superseded MapReduce for analytics workloads.",
+        "HDFS: the Hadoop distributed filesystem storing replicated blocks across cluster nodes."
+      ],
+      "question": "What is MapReduce's main limitation that led to its decline for analytics?",
+      "question_type": "surrounding_concept",
+      "reasoning_chain": ["MapReduce shuffles to disk, batch-only", "Spark keeps data in memory, handles iteration", "=> disk-bound batch model lost out"],
+      "expected_answer": "It writes intermediate results to disk between batch phases, making iterative and interactive analytics slow — Spark's in-memory model superseded it.",
+      "required_memories": ["MapReduce", "Spark"]
+    },
+    {
+      "id": "gl-pgvector-direct",
+      "glossary": [
+        "pgvector: a PostgreSQL extension adding a vector column type with exact and approximate (HNSW, IVFFlat) nearest-neighbor search.",
+        "HNSW: hierarchical navigable small world graphs — an approximate nearest-neighbor index offering logarithmic search with high recall.",
+        "IVFFlat: an inverted-file approximate index clustering vectors into lists and searching the closest lists only."
+      ],
+      "question": "Which ANN indexes does pgvector support?",
+      "question_type": "direct_definition",
+      "expected_answer": "HNSW and IVFFlat (plus exact scan).",
+      "required_memories": ["pgvector"]
+    }
+  ]
+}

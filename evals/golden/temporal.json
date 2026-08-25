@@ -1,0 +1,70 @@
+{
+  "name": "temporal-entity-state",
+  "description": "Entity state changes over time. Answers must respect the time context of the question — pre/post event retrieval must differ.",
+  "cases": [
+    {
+      "id": "bear-01-pre-crisis",
+      "facts": [
+        "Bear Stearns was an independent investment bank headquartered in New York, known for mortgage-backed securities",
+        "In March 2008, during the financial crisis, JPMorgan Chase acquired Bear Stearns in a fire sale backed by the Fed",
+        "Chase Manhattan was purchased by J.P. Morgan in 2000, forming JPMorgan Chase",
+        "After 2008, Bear Stearns existed only as a brand under JPMorgan Chase until it was fully absorbed"
+      ],
+      "question": "Who owned Bear Stearns before the financial crisis?",
+      "time_context": "pre-2008",
+      "expected_answer": "Bear Stearns was independent — publicly held shareholders, no parent company.",
+      "must_not_contain": ["JPMorgan", "Chase"],
+      "temporal_reasoning": true
+    },
+    {
+      "id": "bear-02-post-crisis",
+      "facts": [
+        "Bear Stearns was an independent investment bank headquartered in New York, known for mortgage-backed securities",
+        "In March 2008, during the financial crisis, JPMorgan Chase acquired Bear Stearns in a fire sale backed by the Fed",
+        "Chase Manhattan was purchased by J.P. Morgan in 2000, forming JPMorgan Chase"
+      ],
+      "question": "Who owns Bear Stearns after the financial crisis?",
+      "time_context": "post-2008",
+      "expected_answer": "JPMorgan Chase (acquired March 2008).",
+      "must_contain": ["JPMorgan"],
+      "temporal_reasoning": true
+    },
+    {
+      "id": "bank-one-03",
+      "facts": [
+        "Bank One was a large Chicago-based retail bank led by Jamie Dimon from 2000",
+        "In 2004 JPMorgan Chase merged with Bank One, and Jamie Dimon became CEO of the combined company in 2005"
+      ],
+      "question": "Where was Jamie Dimon CEO in 2002?",
+      "time_context": "2002",
+      "expected_answer": "Bank One (Chicago-based retail bank).",
+      "must_not_contain": ["JPMorgan"],
+      "temporal_reasoning": true
+    },
+    {
+      "id": "bank-one-04",
+      "facts": [
+        "Bank One was a large Chicago-based retail bank led by Jamie Dimon from 2000",
+        "In 2004 JPMorgan Chase merged with Bank One, and Jamie Dimon became CEO of the combined company in 2005"
+      ],
+      "question": "What happened to Bank One and who leads the successor?",
+      "time_context": "post-2005",
+      "expected_answer": "It merged into JPMorgan Chase in 2004; Jamie Dimon became CEO of JPMorgan Chase in 2005.",
+      "must_contain": ["JPMorgan", "Dimon"],
+      "temporal_reasoning": true
+    },
+    {
+      "id": "company-rebrand-05",
+      "facts": [
+        "Facebook rebranded its parent company to Meta Platforms in October 2021",
+        "The Facebook app itself kept the name Facebook after the rebrand",
+        "Instagram and WhatsApp are owned by the same parent company since their acquisitions (2012, 2014)"
+      ],
+      "question": "Did Instagram belong to Meta when it was acquired?",
+      "time_context": "2012",
+      "reasoning_chain": ["acquired 2012 by then-named company", "rebrand to Meta was Oct 2021", "=> acquired by Facebook Inc., which is today's Meta"],
+      "expected_answer": "No — it was acquired in 2012 by Facebook, Inc.; the parent was renamed Meta in 2021. Same entity, earlier name.",
+      "temporal_reasoning": true
+    }
+  ]
+}
