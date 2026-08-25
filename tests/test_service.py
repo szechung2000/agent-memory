@@ -1,0 +1,65 @@
+"""Tests for the memory service (SQLite backend, local hash embedder)."""
+
+from fastapi.testclient import TestClient
+
+from agent_memory.api.main import app
+
+
+def make_client(tmp_path, monkeypatch):
+    """Client with lifespan run (context manager) and isolated DB per test."""
+    monkeypatch.setenv("AM_DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
+    from agent_memory.core.config import get_settings
+
+    get_settings.cache_clear()
+    client = TestClient(app)
+    client.__enter__()
+    return client
+
+
+def test_healthz(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_remember_and_recall(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+
+    docs = {
+        "doc1": "pgvector is a postgres extension for vector similarity search",
+        "doc2": "CS-6515 covers algorithms including dynamic programming and NP completeness",
+        "doc3": "the trading bot uses a momentum strategy on TSLA with a stop loss",
+    }
+    ids = {}
+    for key, content in docs.items():
+        r = client.post("/remember", json={"content": content, "title": key})
+        assert r.status_code == 200
+        ids[key] = r.json()["id"]
+    assert len(set(ids.values())) == 3
+
+    r = client.post("/recall", json={"query": "vector similarity search in postgres", "k": 3})
+    assert r.status_code == 200
+    hits = r.json()
+    assert len(hits) == 3
+    assert hits[0]["id"] == ids["doc1"]
+
+    r2 = client.post("/recall", json={"query": "TSLA stop loss strategy", "k": 1})
+    assert r2.json()[0]["content"] == docs["doc3"]
+
+
+def test_kind_and_namespace_filtering(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    client.post("/remember", json={"content": "episodic event alpha", "kind": "episodic"})
+    client.post("/remember", json={"content": "semantic fact beta"})
+
+    r = client.post("/recall", json={"query": "alpha", "kind": "episodic"})
+    contents = [h["content"] for h in r.json()]
+    assert contents == ["episodic event alpha"]
+
+
+def test_context_endpoint(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    client.post("/remember", json={"content": "momentum trading strategy notes"})
+    r = client.get("/context", params={"query": "trading strategy", "k": 2})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["semantic"]) >= 1
