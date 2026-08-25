@@ -75,12 +75,16 @@ def run_case(repo, embedder, case: dict, k: int = 5) -> CaseResult:
         res.hit = bool(got_texts)
         res.rank_of_first_hit = 1 if got_texts else None
 
-    # temporal must/must_not constraints checked against top-1 content
+    # temporal must/must_not constraints checked against the TOP-1 result only.
+    # Rationale: a pre-event question may legitimately retrieve other pre-event
+    # facts that mention the same orgs (e.g. "Chase Manhattan was purchased in
+    # 2000" when asking about Bear Stearns pre-crisis). The leak we care about
+    # is the ANSWER being wrong — i.e. top-1 pointing at a post-change state.
     if case.get("time_context") and got_texts:
-        top1 = " ".join(got_texts[:2])
+        top1 = got_texts[0]
         for bad in case.get("must_not_contain", []):
             if _contains_any(top1, [bad]):
-                res.details.append(f"temporal leak: top results contain '{bad}'")
+                res.details.append(f"temporal leak: top-1 contains '{bad}'")
                 res.hit = False
     return res
 

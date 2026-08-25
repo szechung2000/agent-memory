@@ -1,12 +1,17 @@
 """Embedding providers.
 
-Uses OpenAI when AM_OPENAI_API_KEY is set; falls back to a deterministic
-local hash-based embedder so the service is fully functional offline.
-The local embedder is for dev/tests only — retrieval quality is dummy.
+Tier order (first available wins):
+1. OpenAI (AM_OPENAI_API_KEY) — text-embedding-3-small
+2. Local BGE (BAAI/bge-small-en-v1.5 via sentence-transformers) — real semantic
+   embeddings offline, CPU-friendly; used for evals and dev
+3. Hash fallback — deterministic bag-of-chars; last-resort only
+
+The local BGE model is an optional dependency: install with
+`uv sync --extra local-embeddings` or `uv pip install sentence-transformers`.
 """
 
 import hashlib
-import struct
+from functools import lru_cache
 
 import numpy as np
 
@@ -43,6 +48,22 @@ class LocalHashEmbedder(Embedder):
         return out
 
 
+class LocalBGEEmbedder(Embedder):
+    """sentence-transformers bge-small-en-v1.5: 384-dim, runs on CPU."""
+
+    model_name = "BAAI/bge-small-en-v1.5"
+
+    def __init__(self) -> None:
+        super().__init__()
+        from sentence_transformers import SentenceTransformer  # optional dep
+
+        self.model = SentenceTransformer(self.model_name)
+
+    def embed(self, texts: list[str]) -> list[np.ndarray]:
+        vecs = self.model.encode(texts, normalize_embeddings=True)
+        return [np.asarray(v, dtype=np.float32) for v in vecs]
+
+
 class OpenAIEmbedder(Embedder):
     def __init__(self) -> None:
         super().__init__()
@@ -56,9 +77,16 @@ class OpenAIEmbedder(Embedder):
         return [np.array(d.embedding, dtype=np.float32) for d in resp.data]
 
 
+@lru_cache(maxsize=1)
+def _try_bge() -> Embedder | None:
+    try:
+        return LocalBGEEmbedder()
+    except ImportError:
+        return None
+
+
 def get_embedder() -> Embedder:
-    return OpenAIEmbedder() if get_settings().openai_api_key else LocalHashEmbedder()
-
-
-# keep struct import used for future packed formats
-_ = struct
+    if get_settings().openai_api_key:
+        return OpenAIEmbedder()
+    bge = _try_bge()
+    return bge if bge is not None else LocalHashEmbedder()
