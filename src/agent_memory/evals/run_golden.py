@@ -103,7 +103,8 @@ def _aspect_recall(repo, embedder, case: dict, k: int, expand: bool = False,
 
 
 def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
-             aspect: bool = False, expand: bool = False, decompose: bool = False) -> CaseResult:
+             aspect: bool = False, expand: bool = False, decompose: bool = False,
+             rerank: bool = False) -> CaseResult:
     """Ingest facts, embed question, check required memories surface."""
     from agent_memory.core.models import Memory, MemoryKind
 
@@ -125,26 +126,39 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
 
 
     t0 = _time.perf_counter()
-    if decompose:
+    if decompose or aspect:
         from agent_memory.core.query_decompose import auto_aspects
 
+        if decompose:
+            aspects_in = auto_aspects(case["question"]) or None
+        else:
+            # oracle decomposition: aspects from golden labels
+            aspects_in = [
+                r.split(" OR ")[0].strip() for r in case.get("required_memories", [])
+            ] or None
         results = _aspect_recall(
-            repo, embedder, case, effective_k, expand=expand,
-            aspects=auto_aspects(case["question"]) or None,
+            repo, embedder, case, effective_k, expand=expand, aspects=aspects_in
         )
-    elif aspect:
-        # oracle decomposition: aspects from golden labels
-        aspects = [r.split(" OR ")[0].strip() for r in case.get("required_memories", [])]
-        results = _aspect_recall(
-            repo, embedder, case, effective_k, expand=expand, aspects=aspects or None
-        )
+        if rerank:
+            from agent_memory.core.rerank import rerank as _rerank
+
+            question = case["question"]
+            results = _rerank(question, results, top_k=max(effective_k, k))
     elif multihop:
         from agent_memory.core.multihop import multihop_recall
 
         results = multihop_recall(repo, embedder, case["question"], k=k, hops=2)
+        if rerank:
+            from agent_memory.core.rerank import rerank as _rerank
+
+            results = _rerank(case["question"], results, top_k=k)
     else:
         qvec = embedder.embed([case["question"]])[0]
         results = repo.recall(qvec, case["question"], k=k)
+        if rerank:
+            from agent_memory.core.rerank import rerank as _rerank
+
+            results = _rerank(case["question"], results, top_k=k)
     latency_ms = (_time.perf_counter() - t0) * 1000
 
     res = CaseResult(
@@ -198,6 +212,7 @@ def run_suite(
     aspect: bool = False,
     expand: bool = False,
     decompose: bool = False,
+    rerank: bool = False,
 ) -> tuple[float, list[CaseResult]]:
     suite = load_suite(suite_name)
     results = []
@@ -206,6 +221,7 @@ def run_suite(
             run_case(
                 repo, embedder, case, k,
                 multihop=multihop, aspect=aspect, expand=expand, decompose=decompose,
+                rerank=rerank,
             )
         )
     score = sum(r.hit for r in results) / max(len(results), 1)
