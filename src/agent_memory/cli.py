@@ -43,14 +43,16 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_recall(args: argparse.Namespace) -> int:
+    from agent_memory.core.models import Memory as _M  # noqa: F401
+
     repo, embedder = _repo_and_embedder()
-    qvec = embedder.embed([args.query])[0]
-    results = repo.recall(
-        qvec,
-        args.query,
-        k=args.k,
-        namespace=args.namespace,
-    )
+    if getattr(args, "multihop", False):
+        from agent_memory.core.multihop import multihop_recall
+
+        results = multihop_recall(repo, embedder, args.query, k=args.k, hops=2)
+    else:
+        qvec = embedder.embed([args.query])[0]
+        results = repo.recall(qvec, args.query, k=args.k, namespace=args.namespace)
     if not results:
         print("no results")
         return 0
@@ -95,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     p_recall.add_argument("query")
     p_recall.add_argument("--k", type=int, default=5)
     p_recall.add_argument("--namespace", default=None)
+    p_recall.add_argument("--multihop", action="store_true", help="iterative query expansion")
     p_recall.set_defaults(func=cmd_recall)
 
     p_cons = sub.add_parser("consolidate", help="distill episodes into semantic facts")

@@ -40,7 +40,7 @@ def _contains_any(text: str, needles: list[str]) -> bool:
     return any(n.lower() in t for n in needles)
 
 
-def run_case(repo, embedder, case: dict, k: int = 5) -> CaseResult:
+def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False) -> CaseResult:
     """Ingest facts, embed question, check required memories surface."""
     from agent_memory.core.models import Memory, MemoryKind
 
@@ -56,7 +56,12 @@ def run_case(repo, embedder, case: dict, k: int = 5) -> CaseResult:
 
     qvec = embedder.embed([case["question"]])[0]
     t0 = _time.perf_counter()
-    results = repo.recall(qvec, case["question"], k=k)
+    if multihop:
+        from agent_memory.core.multihop import multihop_recall
+
+        results = multihop_recall(repo, embedder, case["question"], k=k, hops=2)
+    else:
+        results = repo.recall(qvec, case["question"], k=k)
     latency_ms = (_time.perf_counter() - t0) * 1000
 
     res = CaseResult(
@@ -101,12 +106,13 @@ def run_case(repo, embedder, case: dict, k: int = 5) -> CaseResult:
     return res
 
 
-def run_suite(repo, embedder, suite_name: str, k: int = 5) -> tuple[float, list[CaseResult]]:
+def run_suite(
+    repo, embedder, suite_name: str, k: int = 5, multihop: bool = False
+) -> tuple[float, list[CaseResult]]:
     suite = load_suite(suite_name)
     results = []
     for case in suite["cases"]:
-        # fresh namespace per case to avoid cross-contamination
-        results.append(run_case(repo, embedder, case, k))
+        results.append(run_case(repo, embedder, case, k, multihop=multihop))
     score = sum(r.hit for r in results) / max(len(results), 1)
     return score, results
 
