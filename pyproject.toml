@@ -19,6 +19,9 @@ dependencies = [
     "psycopg[binary]>=3.2",
 ]
 
+[project.scripts]
+am = "agent_memory.cli:main"
+
 [project.optional-dependencies]
 local-embeddings = ["sentence-transformers>=3.0"]
 
