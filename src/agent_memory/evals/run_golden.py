@@ -40,7 +40,70 @@ def _contains_any(text: str, needles: list[str]) -> bool:
     return any(n.lower() in t for n in needles)
 
 
-def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False) -> CaseResult:
+def _aspect_recall(repo, embedder, case: dict, k: int, expand: bool = False,
+                   aspects: list[str] | None = None):
+    """Retrieve per-aspect sub-queries (one per required memory) + main query; union.
+
+    Multi-part questions have evidence spread across unrelated facts; a single
+    query ranks each fact family separately and truncates at k. Sub-querying
+    per aspect surfaces every needed family.
+
+    expand=True additionally runs one expansion hop per aspect sub-query
+    (bridging terms from first-pass hits), for evidence that shares no surface
+    form with the question.
+    """
+    import numpy as np
+
+    if aspects is not None:
+        if len(aspects) < 2:
+            qvec = embedder.embed([case["question"]])[0]
+            return repo.recall(qvec, case["question"], k=k)
+        subqueries = aspects
+    else:
+        required = case.get("required_memories", [])
+        if len(required) < 2:
+            qvec = embedder.embed([case["question"]])[0]
+            return repo.recall(qvec, case["question"], k=k)
+        subqueries = [r.split(" OR ")[0].strip() for r in required]
+
+    merged: dict[str, tuple] = {}
+    queries = [case["question"]] + subqueries
+    for qi, q in enumerate(queries):
+        quota = k if qi == 0 else max(2, k // 2)
+        qvec = np.asarray(embedder.embed([q])[0], dtype=np.float32)
+        first_pass = repo.recall(qvec, q, k=quota)
+        bonus = 1.0 if qi == 0 else 0.92
+        for m, s in first_pass:
+            adj = s * bonus
+            if m.id not in merged or adj > merged[m.id][1]:
+                merged[m.id] = (m, adj)
+
+        if expand and qi > 0:
+            # one hop: bridge from aspect sub-query's top hit
+            from agent_memory.core.multihop import _tokens as _toks
+
+            qtoks = _toks(q)
+            expansion: list[str] = []
+            for m, _s in sorted(first_pass, key=lambda x: -x[1])[:2]:
+                for tok in sorted(_toks(m.content)):
+                    if tok not in qtoks and tok not in expansion:
+                        expansion.append(tok)
+                    if len(expansion) >= 4:
+                        break
+                if len(expansion) >= 4:
+                    break
+            if expansion:
+                eq = q + " " + " ".join(expansion)
+                evec = np.asarray(embedder.embed([eq])[0], dtype=np.float32)
+                for m, s in repo.recall(evec, eq, k=2):
+                    adj = s * bonus * 0.9
+                    if m.id not in merged or adj > merged[m.id][1]:
+                        merged[m.id] = (m, adj)
+    return sorted(merged.values(), key=lambda x: -x[1])[:k * 2]
+
+
+def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
+             aspect: bool = False, expand: bool = False, decompose: bool = False) -> CaseResult:
     """Ingest facts, embed question, check required memories surface."""
     from agent_memory.core.models import Memory, MemoryKind
 
@@ -54,13 +117,24 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False) -> 
 
     import time as _time
 
-    qvec = embedder.embed([case["question"]])[0]
     t0 = _time.perf_counter()
-    if multihop:
+    if decompose:
+        from agent_memory.core.query_decompose import auto_aspects
+
+        results = _aspect_recall(
+            repo, embedder, case, k, expand=expand,
+            aspects=auto_aspects(case["question"]) or None,
+        )
+    elif aspect:
+        # oracle decomposition: aspects from golden labels
+        aspects = [r.split(" OR ")[0].strip() for r in case.get("required_memories", [])]
+        results = _aspect_recall(repo, embedder, case, k, expand=expand, aspects=aspects or None)
+    elif multihop:
         from agent_memory.core.multihop import multihop_recall
 
         results = multihop_recall(repo, embedder, case["question"], k=k, hops=2)
     else:
+        qvec = embedder.embed([case["question"]])[0]
         results = repo.recall(qvec, case["question"], k=k)
     latency_ms = (_time.perf_counter() - t0) * 1000
 
@@ -107,12 +181,24 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False) -> 
 
 
 def run_suite(
-    repo, embedder, suite_name: str, k: int = 5, multihop: bool = False
+    repo,
+    embedder,
+    suite_name: str,
+    k: int = 5,
+    multihop: bool = False,
+    aspect: bool = False,
+    expand: bool = False,
+    decompose: bool = False,
 ) -> tuple[float, list[CaseResult]]:
     suite = load_suite(suite_name)
     results = []
     for case in suite["cases"]:
-        results.append(run_case(repo, embedder, case, k, multihop=multihop))
+        results.append(
+            run_case(
+                repo, embedder, case, k,
+                multihop=multihop, aspect=aspect, expand=expand, decompose=decompose,
+            )
+        )
     score = sum(r.hit for r in results) / max(len(results), 1)
     return score, results
 
