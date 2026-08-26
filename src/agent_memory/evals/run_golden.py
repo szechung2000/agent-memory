@@ -117,18 +117,27 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
 
     import time as _time
 
+    # Multi-part questions need per-aspect coverage, not just global top-k:
+    # each required memory family gets its own retrieval quota that survives merging.
+    n_required = len(case.get("required_memories", []))
+    coverage_mode = decompose or (aspect and n_required >= 2)
+    effective_k = max(k, n_required * 2) if coverage_mode else k
+
+
     t0 = _time.perf_counter()
     if decompose:
         from agent_memory.core.query_decompose import auto_aspects
 
         results = _aspect_recall(
-            repo, embedder, case, k, expand=expand,
+            repo, embedder, case, effective_k, expand=expand,
             aspects=auto_aspects(case["question"]) or None,
         )
     elif aspect:
         # oracle decomposition: aspects from golden labels
         aspects = [r.split(" OR ")[0].strip() for r in case.get("required_memories", [])]
-        results = _aspect_recall(repo, embedder, case, k, expand=expand, aspects=aspects or None)
+        results = _aspect_recall(
+            repo, embedder, case, effective_k, expand=expand, aspects=aspects or None
+        )
     elif multihop:
         from agent_memory.core.multihop import multihop_recall
 
