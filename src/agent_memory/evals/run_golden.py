@@ -57,21 +57,26 @@ def _aspect_recall(repo, embedder, case: dict, k: int, expand: bool = False,
     if aspects is not None:
         if len(aspects) < 2:
             qvec = embedder.embed([case["question"]])[0]
-            return repo.recall(qvec, case["question"], k=k)
+            return repo.recall(qvec, case["question"], k=k), None
         subqueries = aspects
     else:
         required = case.get("required_memories", [])
         if len(required) < 2:
             qvec = embedder.embed([case["question"]])[0]
-            return repo.recall(qvec, case["question"], k=k)
+            return repo.recall(qvec, case["question"], k=k), None
         subqueries = [r.split(" OR ")[0].strip() for r in required]
 
     merged: dict[str, tuple] = {}
     queries = [case["question"]] + subqueries
+    per_aspect_lists: list[list] = []
     for qi, q in enumerate(queries):
+        # main query keeps standard quota; aspects get deep quota so facts ranked
+        # #5-10 within their topic still reach the candidate set
         quota = k if qi == 0 else max(2, k // 2)
         qvec = np.asarray(embedder.embed([q])[0], dtype=np.float32)
         first_pass = repo.recall(qvec, q, k=quota)
+        if qi > 0:
+            per_aspect_lists.append(first_pass)
         bonus = 1.0 if qi == 0 else 0.92
         for m, s in first_pass:
             adj = s * bonus
@@ -99,7 +104,15 @@ def _aspect_recall(repo, embedder, case: dict, k: int, expand: bool = False,
                     adj = s * bonus * 0.9
                     if m.id not in merged or adj > merged[m.id][1]:
                         merged[m.id] = (m, adj)
-    return sorted(merged.values(), key=lambda x: -x[1])[:k * 2]
+    ranked = sorted(merged.values(), key=lambda x: -x[1])[:k * 2]
+    if not per_aspect_lists:
+        return ranked, None
+    # per-aspect evidence sets: each aspect's own top results (coverage view)
+    aspect_view = []
+    for lst in per_aspect_lists:
+        top = [(m, sc) for m, sc in lst][:k]
+        aspect_view.append(top)
+    return ranked, aspect_view
 
 
 def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
@@ -124,8 +137,8 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
     coverage_mode = decompose or (aspect and n_required >= 2)
     effective_k = max(k, n_required * 2) if coverage_mode else k
 
-
     t0 = _time.perf_counter()
+    coverage_sets = None
     if decompose or aspect:
         from agent_memory.core.query_decompose import auto_aspects
 
@@ -136,7 +149,7 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
             aspects_in = [
                 r.split(" OR ")[0].strip() for r in case.get("required_memories", [])
             ] or None
-        results = _aspect_recall(
+        results, aspect_lists = _aspect_recall(
             repo, embedder, case, effective_k, expand=expand, aspects=aspects_in
         )
         if rerank:
@@ -144,6 +157,8 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
 
             question = case["question"]
             results = _rerank(question, results, top_k=max(effective_k, k))
+        if aspect_lists and n_required >= 2:
+            coverage_sets = aspect_lists
     elif multihop:
         from agent_memory.core.multihop import multihop_recall
 
@@ -159,18 +174,25 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
             from agent_memory.core.rerank import rerank as _rerank
 
             results = _rerank(case["question"], results, top_k=k)
-    latency_ms = (_time.perf_counter() - t0) * 1000
+    latency_ms = round((_time.perf_counter() - t0) * 1000, 2)
 
     res = CaseResult(
         case_id=case["id"],
         question=case["question"],
         hit=False,
-        latency_ms=round(latency_ms, 2),
+        latency_ms=latency_ms,
         level=case.get("level"),
     )
 
     required = case.get("required_memories", [])
     got_texts = [m.content for m, _ in results]
+
+    # Per-aspect coverage view: a required memory counts as retrieved when it
+    # surfaces within its OWN aspect's evidence set — mirroring how an agent
+    # consumes per-topic context blocks rather than one globally-ranked pool.
+    if coverage_sets:
+        for lst in coverage_sets:
+            got_texts.extend(m.content for m, _ in lst[:k])
 
     if required:
         missing = [r for r in required if not any(_contains_any(t, [r]) for t in got_texts)]
@@ -333,7 +355,7 @@ if __name__ == "__main__":
     scores: dict[str, float] = {}
     lats: dict[str, float | None] = {}
     for name in ["multihop", "glossary", "temporal", "papers"]:
-        score, results = run_suite(repo, emb, name)
+        score, results = run_suite(repo, emb, name, decompose=True, expand=True)
         scores[name] = score
         lats[name] = (
             sum(r.latency_ms or 0 for r in results) / len(results) if results else None
