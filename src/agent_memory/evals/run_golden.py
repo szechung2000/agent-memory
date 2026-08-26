@@ -124,7 +124,6 @@ def run_case(repo, embedder, case: dict, k: int = 5, multihop: bool = False,
     effective_k = max(k, n_required * 2) if coverage_mode else k
 
 
-    qvec0 = embedder.embed([case["question"]])[0]
     t0 = _time.perf_counter()
     if decompose:
         from agent_memory.core.query_decompose import auto_aspects
