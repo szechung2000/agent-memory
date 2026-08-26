@@ -15,6 +15,9 @@ THRESHOLDS = {
     "multihop": 0.4,  # hash embedder is weak; real gates once OpenAI embeddings on
     "glossary": 0.6,
     "temporal": 0.4,  # strict temporal logic needs real embeddings + reranking
+    # papers suite is the reality check: 4 real arXiv papers, levels L0-L3.
+    # Higher levels need multi-hop retrieval; gate conservatively until reranking lands.
+    "papers": 0.5,
 }
 
 
