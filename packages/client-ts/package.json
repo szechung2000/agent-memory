@@ -1,0 +1,8 @@
+{
+  "name": "@agent-memory/client",
+  "version": "0.1.0",
+  "description": "Typed TypeScript client for agent-memory",
+  "main": "src/memory-client.ts",
+  "types": "src/memory-client.ts",
+  "license": "MIT"
+}

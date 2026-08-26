@@ -68,6 +68,33 @@ uv run pytest      # tests
 uv run ruff check . # lint
 ```
 
+## Agent tools
+
+Any LLM agent can use memory via function-calling:
+
+```python
+from agent_memory.tools import MemoryToolExecutor
+executor = MemoryToolExecutor(repo, embedder)
+result = executor.execute("memory_search", {"query": "trading strategy"})
+# executor.tools -> OpenAI-compatible tool schemas (memory_write/search/context)
+```
+
+## Telegram demo agent
+
+A memory-backed assistant: pulls relevant context before answering, stores durable facts.
+
+```bash
+pip install ".[telegram]"
+export TELEGRAM_BOT_TOKEN=... AM_OPENAI_API_KEY=...   # key optional — demo mode works without
+uv run python -m agent_memory.demo.telegram_agent
+```
+
+Demo mode (no key): say "remember that ..." and it stores the fact; ask back and it injects remembered context.
+
+## TypeScript client
+
+Typed HTTP client for the API in `packages/client-ts` (`@agent-memory/client`).
+
 ## Roadmap
 
-See [docs/project-breakdown.md](docs/project-breakdown.md): consolidation (episodic→semantic), reranking, agent tools, recall eval harness.
+See [docs/project-breakdown.md](docs/project-breakdown.md): reranking (E3), eval history in CI (E6), live graph dashboard.
