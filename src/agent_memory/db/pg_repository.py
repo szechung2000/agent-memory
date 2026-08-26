@@ -109,6 +109,15 @@ class PgVectorRepository:
             created_at=row["created_at"],
         )
 
+    def update_metadata(self, memory_id: str, metadata: dict) -> None:
+        import json as _json
+
+        self.session.execute(
+            text("UPDATE memories SET metadata = CAST(:meta AS JSONB) WHERE id = :id"),
+            {"meta": _json.dumps(metadata), "id": memory_id},
+        )
+        self.session.commit()
+
     def recall(
         self,
         query_vec: np.ndarray,
