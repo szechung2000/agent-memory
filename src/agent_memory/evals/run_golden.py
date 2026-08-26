@@ -154,6 +154,51 @@ def format_report(suite_name: str, score: float, results: list[CaseResult]) -> s
     return "\n".join(lines)
 
 
+HISTORY_FILE = Path(__file__).resolve().parents[3] / "evals" / "history.jsonl"
+
+
+def append_history(suite_scores: dict[str, float], latencies: dict[str, float | None]) -> None:
+    """Append one JSON line per eval run: {ts, scores, latency_ms}."""
+    import datetime as _dt
+
+    record = {
+        "ts": _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds"),
+        "scores": {k: round(v, 4) for k, v in suite_scores.items()},
+        "latency_ms_mean": {
+            k: (round(v, 2) if v is not None else None) for k, v in latencies.items()
+        },
+    }
+    HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with HISTORY_FILE.open("a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def read_history(limit: int = 20) -> list[dict]:
+    """Read last N runs, oldest first."""
+    if not HISTORY_FILE.exists():
+        return []
+    lines = HISTORY_FILE.read_text().strip().splitlines()
+    return [json.loads(line) for line in lines[-limit:]]
+
+
+def print_trend(limit: int = 10) -> None:
+    """Print score trend per suite across recent runs."""
+    hist = read_history(limit)
+    if not hist:
+        print("no eval history yet")
+        return
+    suites = sorted({s for r in hist for s in r["scores"]})
+    print(f"\n=== eval history (last {len(hist)} runs) ===")
+    header = "run (ts)              " + "".join(f"{s:>12}" for s in suites)
+    print(header)
+    for rec in hist:
+        row = f"{rec['ts']:<22}" + "".join(
+            f"{rec['scores'].get(s, float('nan')):>12.0%}" if s in rec["scores"] else f"{'—':>12}"
+            for s in suites
+        )
+        print(row)
+
+
 def make_eval_repo(db_url: str = "sqlite:///:memory:"):
     """Fresh isolated store for eval runs."""
     from sqlalchemy import create_engine
@@ -174,6 +219,15 @@ if __name__ == "__main__":
     repo = make_eval_repo()
     emb = get_embedder()
 
+    scores: dict[str, float] = {}
+    lats: dict[str, float | None] = {}
     for name in ["multihop", "glossary", "temporal", "papers"]:
         score, results = run_suite(repo, emb, name)
+        scores[name] = score
+        lats[name] = (
+            sum(r.latency_ms or 0 for r in results) / len(results) if results else None
+        )
         print(format_report(name, score, results))
+
+    append_history(scores, lats)
+    print_trend()

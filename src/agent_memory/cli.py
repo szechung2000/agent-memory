@@ -84,6 +84,13 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_history(args: argparse.Namespace) -> int:
+    from agent_memory.evals.run_golden import print_trend
+
+    print_trend(limit=args.limit)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="am", description="agent-memory CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -105,6 +112,10 @@ def main(argv: list[str] | None = None) -> int:
         "--review", action="store_true", help="interactive approval before each promotion"
     )
     p_cons.set_defaults(func=cmd_consolidate)
+
+    p_hist = sub.add_parser("eval-history", help="show golden-eval score trends")
+    p_hist.add_argument("--limit", type=int, default=10)
+    p_hist.set_defaults(func=cmd_history)
 
     args = parser.parse_args(argv)
     return args.func(args)
