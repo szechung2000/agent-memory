@@ -24,6 +24,7 @@ am = "agent_memory.cli:main"
 
 [project.optional-dependencies]
 local-embeddings = ["sentence-transformers>=3.0"]
+telegram = ["python-telegram-bot>=21.0"]
 
 [dependency-groups]
 dev = [
