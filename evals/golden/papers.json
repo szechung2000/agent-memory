@@ -1,0 +1,246 @@
+{
+  "name": "papers-graph",
+  "description": "Reality check: facts and glossary terms extracted from four arXiv papers (Transformer 1706.03762, ReAct 2210.03629, LoRA 2106.09685, RAG 2005.11401). Facts form a graph across papers (e.g. LoRA adapts Transformer attention weights; ReAct acts on Wikipedia like RAG's index; RAG retrieves into BART, a Transformer descendant). Levels: L0 = direct lookup, L1 = one hop, L2 = two hops, L3 = multi-hop/cross-paper synthesis.",
+  "source_papers": {
+    "transformer": "Attention Is All You Need (Vaswani et al., 2017)",
+    "react": "ReAct: Synergizing Reasoning and Acting in Language Models (Yao et al., 2022)",
+    "lora": "LoRA: Low-Rank Adaptation of Large Language Models (Hu et al., 2021)",
+    "rag": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks (Lewis et al., 2020)"
+  },
+  "cases": [
+    {
+      "id": "p-L0-01", "level": 0,
+      "facts": [
+        "The Transformer model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task",
+        "The Transformer was proposed by Vaswani et al. at Google in 2017"
+      ],
+      "question": "What BLEU score does the Transformer achieve on WMT 2014 English-to-German translation?",
+      "expected_answer": "28.4 BLEU",
+      "required_memories": ["28.4 BLEU"]
+    },
+    {
+      "id": "p-L0-02", "level": 0,
+      "facts": [
+        "ReAct was published at ICLR 2023 by Yao et al. from Princeton and Google Brain",
+        "ReAct interleaves reasoning traces with task-specific actions in LLMs"
+      ],
+      "question": "At which venue was ReAct published?",
+      "expected_answer": "ICLR 2023",
+      "required_memories": ["ICLR 2023"]
+    },
+    {
+      "id": "p-L0-03", "level": 0,
+      "facts": [
+        "RAG combines a parametric memory (a pre-trained seq2seq model) with a non-parametric memory (a dense vector index of Wikipedia)",
+        "The retriever in RAG is DPR, the Dense Passage Retriever"
+      ],
+      "question": "What are the two types of memory combined in a RAG model?",
+      "expected_answer": "Parametric memory (pre-trained seq2seq model) and non-parametric memory (dense vector index of Wikipedia).",
+      "required_memories": ["parametric", "non-parametric"]
+    },
+    {
+      "id": "p-L0-04", "level": 0,
+      "facts": [
+        "LoRA freezes pre-trained model weights and injects trainable rank decomposition matrices into each layer of the Transformer architecture",
+        "LoRA checkpoints reduced size roughly 10,000x, from 350GB to 35MB on GPT-3 175B"
+      ],
+      "question": "What does LoRA do with the pre-trained model weights during adaptation?",
+      "expected_answer": "It freezes them and injects trainable low-rank decomposition matrices instead.",
+      "required_memories": ["freezes pre-trained", "rank decomposition"]
+    },
+    {
+      "id": "p-L0-05", "level": 0,
+      "facts": [
+        "ReAct overcomes hallucination in chain-of-thought reasoning by interacting with a simple Wikipedia API",
+        "ReAct outperforms imitation and reinforcement learning methods by absolute success rates of 34% on ALFWorld and 10% on WebShop"
+      ],
+      "question": "Which external tool does ReAct interact with for question answering?",
+      "expected_answer": "A simple Wikipedia API.",
+      "required_memories": ["Wikipedia API"]
+    },
+
+    {
+      "id": "p-L1-06", "level": 1,
+      "facts": [
+        "The Transformer establishes a single-model state-of-the-art BLEU score of 41.8 on WMT 2014 English-to-French after training 3.5 days on eight GPUs",
+        "The big Transformer models were trained for 300,000 steps (3.5 days) at about 1.0 second per step"
+      ],
+      "question": "How many GPUs were used to train the model that scored 41.8 BLEU?",
+      "reasoning_chain": ["41.8 BLEU fact mentions 'trained 3.5 days on eight GPUs'"],
+      "expected_answer": "Eight NVIDIA P100 GPUs.",
+      "required_memories": ["eight GPUs", "41.8"]
+    },
+    {
+      "id": "p-L1-07", "level": 1,
+      "facts": [
+        "LoRA adapts only attention weight matrices (Wq, Wv) and freezes MLP modules for parameter efficiency",
+        "Adapting only query and value projection matrices reduced checkpoint size roughly 10,000x, from 350GB to 35MB"
+      ],
+      "question": "Which weight matrices does LoRA adapt to achieve the 10,000x checkpoint reduction?",
+      "reasoning_chain": ["10,000x reduction fact", "that fact is about 'query and value projection matrices'"],
+      "expected_answer": "The query and value projection matrices (Wq, Wv) of the attention layers.",
+      "required_memories": ["10,000", "query and value"]
+    },
+    {
+      "id": "p-L1-08", "level": 1,
+      "facts": [
+        "In RAG, the seq2seq generator is BART and the retriever is DPR (Dense Passage Retriever)",
+        "DPR provides latent documents conditioned on the input, which BART conditions on to generate output"
+      ],
+      "question": "Which model generates the final output in RAG, and what does it condition on besides the input?",
+      "reasoning_chain": ["generator is BART", "BART conditions on latent documents from DPR"],
+      "expected_answer": "BART generates the output, conditioned on the input plus latent documents retrieved by DPR.",
+      "required_memories": ["BART", "DPR"]
+    },
+    {
+      "id": "p-L1-09", "level": 1,
+      "facts": [
+        "ReAct outperforms imitation and reinforcement learning methods on ALFWorld and WebShop",
+        "On ALFWorld ReAct improves absolute success rate by 34%, using only one or two in-context examples"
+      ],
+      "question": "How many in-context examples does ReAct need to beat RL baselines on ALFWorld?",
+      "reasoning_chain": ["ALFWorld +34%", "same sentence: 'while being prompted with only one or two in-context examples'"],
+      "expected_answer": "Only one or two in-context examples.",
+      "required_memories": ["ALFWorld", "one or two in-context examples"]
+    },
+    {
+      "id": "p-L1-10", "level": 1,
+      "facts": [
+        "The Transformer improves over existing best results including ensembles by over 2 BLEU on WMT 2014 English-to-German",
+        "The Transformer achieves 28.4 BLEU on that task"
+      ],
+      "question": "What was the approximate BLEU score of the previous best results on WMT 2014 English-to-German that the Transformer surpassed?",
+      "reasoning_chain": ["Transformer scores 28.4", "improvement is 'over 2 BLEU'", "=> prior best ~26.x"],
+      "expected_answer": "Around 26 BLEU (28.4 minus the stated improvement of over 2 BLEU).",
+      "required_memories": ["28.4 BLEU", "over 2 BLEU"]
+    },
+
+    {
+      "id": "p-L2-11", "level": 2,
+      "facts": [
+        "LoRA injects trainable rank decomposition matrices into each layer of the Transformer architecture",
+        "A very low rank (r = 1 or 2) suffices for LoRA even when the full rank d is as high as 12,288 on GPT-3 175B",
+        "GPT-3 175B full fine-tuning deployment is prohibitively expensive because each fine-tuned instance has 175B parameters"
+      ],
+      "question": "Why is LoRA especially valuable for deploying many task-specific variants of GPT-3 175B?",
+      "reasoning_chain": ["deploying each full fine-tuned instance = 175B params, prohibitive", "LoRA freezes base weights", "only tiny rank-r matrices trained/swapped", "=> swap small adapters per task at tiny cost"],
+      "expected_answer": "Because full fine-tuned instances each carry 175B parameters — prohibitively expensive to deploy per task. LoRA freezes the base model and trains only tiny rank-r matrices (r=1–2 suffice vs d=12,288), so switching tasks means swapping megabytes of adapter weights, not 350GB checkpoints.",
+      "required_memories": ["175B parameters", "freezes pre-trained", "low rank"]
+    },
+    {
+      "id": "p-L2-12", "level": 2,
+      "facts": [
+        "RAG's non-parametric memory is a dense vector index of Wikipedia",
+        "ReAct overcomes chain-of-thought hallucination by interacting with a Wikipedia API",
+        "ReAct generates human-like task-solving trajectories more interpretable than baselines without reasoning traces"
+      ],
+      "question": "Both RAG and ReAct ground LLMs in Wikipedia, but how do their mechanisms differ?",
+      "reasoning_chain": ["RAG: differentiable retrieval via dense vector index feeding generation", "ReAct: discrete API actions interleaved with reasoning traces", "=> parametric-retrieval vs agentic-action grounding"],
+      "expected_answer": "RAG grounds via a differentiable dense vector index of Wikipedia integrated end-to-end into generation; ReAct grounds via discrete Wikipedia API actions interleaved with explicit reasoning traces, prioritizing interpretability and fact verification.",
+      "required_memories": ["dense vector index", "Wikipedia API", "reasoning traces"]
+    },
+    {
+      "id": "p-L2-13", "level": 2,
+      "facts": [
+        "The Transformer removes recurrence entirely and relies solely on attention mechanisms",
+        "Training the big Transformer took 3.5 days on 8 GPUs for 300,000 steps",
+        "The best previous models were recurrent/convolutional encoder-decoder architectures with much higher training costs"
+      ],
+      "question": "Why could the Transformer be trained in a small fraction of the training costs of prior state-of-the-art models?",
+      "reasoning_chain": ["prior SOTA = recurrent/convolutional", "Transformer removes recurrence, all-attention", "attention parallelizes across sequence", "=> far less sequential compute => 3.5 days vs literature"],
+      "expected_answer": "Prior models were recurrent/convolutional — inherently sequential. The Transformer removes recurrence in favor of attention, which parallelizes across the sequence during training, cutting training to 3.5 days on 8 GPUs.",
+      "required_memories": ["recurrent or convolutional", "attention mechanism", "3.5 days"]
+    },
+    {
+      "id": "p-L2-14", "level": 2,
+      "facts": [
+        "LoRA limits its study to adapting attention weights in the Transformer and freezes the MLP modules",
+        "The Transformer's attention uses scaled dot-product queries, keys and values produced by projection matrices Wq, Wk, Wv",
+        "Rank r = 4 or 8 with {Wq, Wv} performs on par with or better than full fine-tuning on WikiSQL and MultiNLI"
+      ],
+      "question": "Why does adapting only Wq and Wv make sense given how the Transformer computes attention?",
+      "reasoning_chain": ["attention = softmax(QK^T/sqrt(d))V", "Q,K,V come from Wq,Wk,Wv projections", "LoRA shows Wq,Wv alone matches full adaptation at low rank", "=> attention content is where task adaptation lives; MLP frozen for efficiency"],
+      "expected_answer": "Attention itself is computed from Q/K/V projections (Wq, Wk, Wv); LoRA's ablations show adapting just Wq and Wv at ranks as low as 4–8 matches full fine-tuning on WikiSQL/MultiNLI, so capturing task-specific behavior in the attention projections while freezing MLPs captures most adaptation value at minimal cost.",
+      "required_memories": ["Wq, Wv", "attention weights", "MLP modules"]
+    },
+    {
+      "id": "p-L2-15", "level": 2,
+      "facts": [
+        "ReAct was evaluated on HotpotQA (QA), Fever (fact verification), ALFWorld and WebShop (interactive decision making)",
+        "ReAct overcomes hallucination and error propagation issues prevalent in chain-of-thought reasoning",
+        "Chain-of-thought prompting is reasoning without interaction with external environments"
+      ],
+      "question": "What problem does ReAct share with plain chain-of-thought, and what does it add to fix it?",
+      "reasoning_chain": ["CoT = internal reasoning only", "CoT suffers hallucination + error propagation", "ReAct keeps reasoning traces but adds environment actions (Wikipedia API etc.)", "=> actions ground reasoning in external evidence"],
+      "expected_answer": "Both generate reasoning traces, but plain CoT hallucinates and propagates errors internally. ReAct keeps the traces and interleaves real environment actions (Wikipedia API, ALFWorld/WebShop), letting it consult external evidence instead of inventing it.",
+      "required_memories": ["chain-of-thought", "hallucination", "interacting with"]
+    },
+
+    {
+      "id": "p-L3-16", "level": 3,
+      "facts": [
+        "LoRA injects trainable matrices into each layer of the Transformer architecture",
+        "The Transformer's self-attention lets every token attend to every other token, removing recurrence",
+        "LoRA checkpoint sizes shrink ~10,000x because only attention projections are adapted at low rank",
+        "RAG marginalizes latent documents with a top-K approximation"
+      ],
+      "question": "If you wanted to build a LoRA-adapted, RAG-augmented assistant today, why do all four papers matter to its design, and which architectural inheritance connects them?",
+      "reasoning_chain": ["assistant backbone = Transformer family", "LoRA adapts that backbone cheaply (its target architecture IS the Transformer)", "RAG adds non-parametric knowledge via retrieval into a seq2seq (BART = Transformer descendant)", "ReAct-style action loop would let the assistant decide when to retrieve", "=> common ancestor: Transformer attention; papers compose as backbone + cheap adaptation + retrieval grounding + agentic control"],
+      "expected_answer": "All four compose into one system: the Transformer is the backbone architecture everything inherits from; LoRA makes adapting that backbone per-task cheap (10,000x smaller checkpoints); RAG supplies fresh non-parametric knowledge by retrieving into an index rather than relying on frozen parameters; and ReAct provides the control loop deciding when to reason versus act/retrieve. The connecting thread is Transformer attention — every paper either builds it, adapts it efficiently, wraps retrieval around it, or orchestrates it with actions.",
+      "required_memories": ["Transformer architecture", "LoRA", "non-parametric", "ReAct OR reasoning traces OR actions"]
+    },
+    {
+      "id": "p-L3-17", "level": 3,
+      "facts": [
+        "RAG addresses provenance and world-knowledge-update problems left open by parametric-only LLMs",
+        "LoRA enables swapping task adaptations by exchanging small adapter weights instead of full model copies",
+        "The Transformer achieves strong generalization across tasks like translation and constituency parsing",
+        "ReAct trajectories are more human-interpretable and trustworthy than baselines"
+      ],
+      "question": "Trace how the four papers collectively address four production concerns: knowledge freshness, provenance, serving cost, and debuggability.",
+      "reasoning_chain": ["knowledge freshness: parametric LLMs can't update easily -> RAG's non-parametric index updates independently", "provenance: RAG cites retrieved documents; ReAct exposes explicit action traces", "serving cost: LoRA swaps MB-scale adapters not GB-scale models", "debuggability: ReAct's interpretable trajectories + RAG's retrievable evidence vs opaque parametric recall"],
+      "expected_answer": "Knowledge freshness: RAG's non-parametric Wikipedia index updates without retraining. Provenance: RAG can cite what it retrieved; ReAct logs explicit reasoning/action traces showing why each step happened. Serving cost: LoRA serves one frozen base plus swappable megabyte adapters instead of one deployed model per task. Debuggability: ReAct's human-readable trajectories and RAG's retrievable evidence replace opaque parametric recall with inspectable decisions.",
+      "required_memories": ["world knowledge", "provenance OR provenance for their decisions", "10,000 OR swapping", "interpretable"]
+    },
+    {
+      "id": "p-L3-18", "level": 3,
+      "facts": [
+        "The Transformer achieved 28.4 BLEU (En-De) and 41.8 BLEU (En-Fr), new state-of-the-art at publication",
+        "ReAct improves success rates on ALFWorld (+34%) and WebShop (+10%) over imitation/RL",
+        "LoRA matches GPT-3 175B full fine-tuning performance on WikiSQL and MultiNLI with r=4 or 8 on {Wq, Wv}",
+        "RAG achieves state-of-the-art results on open-domain QA benchmarks"
+      ],
+      "question": "Across all four papers, compare what 'improvement' means: which claim is hardest to verify independently and why?",
+      "reasoning_chain": ["BLEU/success-rate/accuracy claims = benchmark numbers, reproducible with public datasets/code", "LoRA's parity claim requires replicating GPT-3-scale runs — closed model, huge compute", "=> LoRA's claim hardest: depends on proprietary 175B model access"],
+      "expected_answer": "The Transformer's BLEU scores, ReAct's success rates, and RAG's QA numbers are all verifiable against public benchmarks and released code/data. LoRA's central claim — matching full GPT-3 175B fine-tuning — is hardest to verify independently, because it depends on reproducing experiments with a proprietary 175-billion-parameter model and substantial compute that few groups have.",
+      "required_memories": ["GPT-3 175B", "WikiSQL OR MultiNLI", "BLEU OR ALFWorld"]
+    },
+    {
+      "id": "p-L3-19", "level": 3,
+      "facts": [
+        "RAG's parametric memory is a pre-trained seq2seq model; BART is that seq2seq model",
+        "BART is a Transformer-based denoising autoencoder",
+        "LoRA injects trainable matrices into Transformer layers",
+        "The Transformer relies wholly on self-attention without recurrence"
+      ],
+      "question": "Could LoRA be applied directly inside RAG? Walk the dependency chain through the papers.",
+      "reasoning_chain": ["RAG's generator = BART", "BART is a Transformer variant", "LoRA targets Transformer layer projections", "=> yes: apply LoRA to BART's attention weights, keeping the frozen base and swapping task adapters while DPR index stays independent", "caveat: RAG trains end-to-end through retrieval; freezing most weights changes that dynamic"],
+      "expected_answer": "Yes. The chain: RAG's parametric memory is BART; BART is a Transformer-family encoder-decoder; LoRA injects trainable low-rank matrices specifically into Transformer attention projections. So one could freeze BART inside RAG and attach LoRA adapters for domain specialization. The caveat: RAG was trained end-to-end, backpropagating through retrieval — with LoRA only adapter weights train, so the retriever-generator co-adaptation dynamics would change and likely need separate tuning of DPR.",
+      "required_memories": ["BART", "seq2seq", "LoRA", "rank decomposition OR attention"]
+    },
+    {
+      "id": "p-L3-20", "level": 3,
+      "facts": [
+        "The Transformer paper introduced scaled dot-product attention and multi-head attention",
+        "Multi-head attention projects into subspaces with learned linear projections (Wq, Wk, Wv, Wo)",
+        "LoRA adapts attention projection matrices at low rank",
+        "ReAct and RAG both consume Transformer-descendant models",
+        "Scaling laws imply larger models benefit most from parameter-efficient adaptation"
+      ],
+      "question": "Construct the causal chain from 'scaled dot-product attention' to 'why agent frameworks today use LoRA': connect every paper in order.",
+      "reasoning_chain": ["multi-head attention needs learned Wq/Wk/Wv/Wo projections", "those projections dominate parameter count scaling with model size d", "full fine-tuning of them becomes infeasible at GPT-3 scale -> LoRA low-rank adaptation of exactly those matrices", "adapted Transformers power RAG generators and ReAct policy LLMs", "-> agents use LoRA to get specialized behavior per task/domain cheaply"],
+      "expected_answer": "Multi-head attention requires learned projection matrices (Wq, Wk, Wv, Wo) whose parameter counts grow with model dimensionality. As models scaled toward GPT-3 175B, fully retraining those projections per task became infeasible — LoRA exploits exactly this structure by injecting low-rank updates into those same attention projections. The resulting cheaply-adapted Transformer descendants are what RAG uses as generators and ReAct steers as reasoning-and-acting policies. Hence modern agent frameworks standardize on LoRA: they need many specialized behaviors over one shared Transformer backbone, and attention-projection adapters deliver that at swap-in-seconds cost.",
+      "required_memories": ["multi-head", "LoRA", "rank decomposition OR low rank", "ReAct OR RAG"]
+    }
+  ]
+}

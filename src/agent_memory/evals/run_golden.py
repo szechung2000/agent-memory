@@ -30,6 +30,8 @@ class CaseResult:
     hit: bool = False              # at least one required memory retrieved in top-k
     rank_of_first_hit: int | None = None  # 1-based; None if missed
     top_k: int = 5
+    latency_ms: float | None = None  # question -> recall wall time
+    level: int | None = None          # reasoning depth (papers suite)
     details: list[str] = field(default_factory=list)
 
 
@@ -50,10 +52,20 @@ def run_case(repo, embedder, case: dict, k: int = 5) -> CaseResult:
         key = fact.split(":")[0][:24]
         id_map[key] = mid
 
-    qvec = embedder.embed([case["question"]])[0]
-    results = repo.recall(qvec, case["question"], k=k)
+    import time as _time
 
-    res = CaseResult(case_id=case["id"], question=case["question"], hit=False)
+    qvec = embedder.embed([case["question"]])[0]
+    t0 = _time.perf_counter()
+    results = repo.recall(qvec, case["question"], k=k)
+    latency_ms = (_time.perf_counter() - t0) * 1000
+
+    res = CaseResult(
+        case_id=case["id"],
+        question=case["question"],
+        hit=False,
+        latency_ms=round(latency_ms, 2),
+        level=case.get("level"),
+    )
 
     required = case.get("required_memories", [])
     got_texts = [m.content for m, _ in results]
@@ -100,12 +112,39 @@ def run_suite(repo, embedder, suite_name: str, k: int = 5) -> tuple[float, list[
 
 
 def format_report(suite_name: str, score: float, results: list[CaseResult]) -> str:
-    lines = [f"\n=== {suite_name}: {score:.0%} ({sum(r.hit for r in results)}/{len(results)}) ==="]
+    lats = [r.latency_ms for r in results if r.latency_ms is not None]
+    lat_summary = ""
+    if lats:
+        lats_sorted = sorted(lats)
+        p50 = lats_sorted[len(lats_sorted) // 2]
+        lat_summary = (
+            f" | latency ms: p50={p50:.1f} mean={sum(lats)/len(lats):.1f} "
+            f"max={max(lats):.1f}"
+        )
+    lines = [
+        f"\n=== {suite_name}: {score:.0%} ({sum(r.hit for r in results)}/{len(results)}) ==="
+        + lat_summary
+    ]
     for r in results:
         mark = "PASS" if r.hit else "FAIL"
         rank = f"first-hit@{r.rank_of_first_hit}" if r.rank_of_first_hit else "miss"
-        lines.append(f"[{mark}] {r.case_id} ({rank}) {r.question[:60]}")
+        lvl = f" L{r.level}" if r.level is not None else ""
+        lat = f" {r.latency_ms:.1f}ms" if r.latency_ms is not None else ""
+        lines.append(f"[{mark}] {r.case_id}{lvl} ({rank}){lat} {r.question[:60]}")
+        # per-level breakdown
         lines.extend(f"       {d}" for d in r.details)
+    by_level: dict[int, list[CaseResult]] = {}
+    for r in results:
+        if r.level is not None:
+            by_level.setdefault(r.level, []).append(r)
+    if by_level:
+        lines.append("  --- by level ---")
+        for lvl in sorted(by_level):
+            rs = by_level[lvl]
+            hit_rate = sum(x.hit for x in rs) / len(rs)
+            ls = [x.latency_ms for x in rs if x.latency_ms is not None]
+            lat_s = f" mean={sum(ls)/len(ls):.1f}ms" if ls else ""
+            lines.append(f"  L{lvl}: {hit_rate:.0%} ({len(rs)} cases){lat_s}")
     return "\n".join(lines)
 
 
@@ -129,6 +168,6 @@ if __name__ == "__main__":
     repo = make_eval_repo()
     emb = get_embedder()
 
-    for name in ["multihop", "glossary", "temporal"]:
+    for name in ["multihop", "glossary", "temporal", "papers"]:
         score, results = run_suite(repo, emb, name)
         print(format_report(name, score, results))
