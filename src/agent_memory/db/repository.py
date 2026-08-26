@@ -56,6 +56,12 @@ class MemoryRepository:
         row = self.session.get(MemoryRow, memory_id)
         return _to_model(row) if row else None
 
+    def update_metadata(self, memory_id: str, metadata: dict) -> None:
+        row = self.session.get(MemoryRow, memory_id)
+        if row:
+            row.meta = metadata
+            self.session.commit()
+
     def recall(
         self,
         query_vec: np.ndarray,

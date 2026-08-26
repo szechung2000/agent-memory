@@ -60,6 +60,28 @@ def cmd_recall(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_consolidate(args: argparse.Namespace) -> int:
+    from agent_memory.consolidate import form_candidates, promote_candidate
+
+    repo, embedder = _repo_and_embedder()
+    candidates, report = form_candidates(repo)
+    print(
+        f"episodes scanned: {report.episodes_scanned}  groups: {report.groups_formed}  "
+        f"candidates: {report.candidates_created}"
+    )
+    promoted = superseded = 0
+    for i, cand in enumerate(candidates):
+        if args.review:
+            ans = input(f"[{i + 1}/{len(candidates)}] promote? {cand.content[:100]} [y/N] ")
+            if not ans.strip().lower().startswith("y"):
+                continue
+        _, sup = promote_candidate(repo, cand, embedder)
+        promoted += 1
+        superseded += 1 if sup else 0
+    print(f"promoted: {promoted}  superseded: {superseded}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="am", description="agent-memory CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -74,6 +96,12 @@ def main(argv: list[str] | None = None) -> int:
     p_recall.add_argument("--k", type=int, default=5)
     p_recall.add_argument("--namespace", default=None)
     p_recall.set_defaults(func=cmd_recall)
+
+    p_cons = sub.add_parser("consolidate", help="distill episodes into semantic facts")
+    p_cons.add_argument(
+        "--review", action="store_true", help="interactive approval before each promotion"
+    )
+    p_cons.set_defaults(func=cmd_consolidate)
 
     args = parser.parse_args(argv)
     return args.func(args)
