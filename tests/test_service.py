@@ -63,3 +63,30 @@ def test_context_endpoint(tmp_path, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert len(body["semantic"]) >= 1
+
+
+def test_put_memory_is_keyed_and_idempotent(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    body = {
+        "content": "PDF evidence from page one",
+        "namespace": "paper-corpus",
+        "metadata": {"document_id": "sha256:paper-a", "page_start": 1},
+    }
+
+    first = client.put("/v1/memories/sha256:paper-a:page:1:chunk:0", json=body)
+    second = client.put(
+        "/v1/memories/sha256:paper-a:page:1:chunk:0",
+        json={**body, "metadata": {"citation": {"locator": "p. 1"}}},
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+    hit = client.post(
+        "/recall", json={"query": "PDF evidence", "namespace": "paper-corpus"}
+    ).json()[0]
+    assert hit["namespace"] == "paper-corpus"
+    assert hit["metadata"] == {
+        "document_id": "sha256:paper-a",
+        "page_start": 1,
+        "citation": {"locator": "p. 1"},
+    }

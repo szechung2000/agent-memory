@@ -52,6 +52,37 @@ class MemoryRepository:
         self.session.commit()
         return row.id
 
+    def upsert(self, external_id: str, m: Memory, vector: np.ndarray) -> str:
+        """Write by a stable source-scoped key, preserving existing metadata.
+
+        Callers must put source identity in ``external_id``.  The database
+        scope additionally includes user and namespace so independent memory
+        collections can use the same source key safely.
+        """
+        row = self.session.scalar(
+            select(MemoryRow).where(
+                MemoryRow.user_id == m.user_id,
+                MemoryRow.namespace == m.namespace,
+                MemoryRow.external_id == external_id,
+            )
+        )
+        if row is None:
+            row = MemoryRow(id=str(uuid.uuid4()), external_id=external_id)
+            self.session.add(row)
+
+        row.kind = m.kind.value
+        row.namespace = m.namespace
+        row.user_id = m.user_id
+        row.agent_id = m.agent_id
+        row.title = m.title
+        row.content = m.content
+        row.meta = {**(row.meta or {}), **m.metadata}
+        row.session_id = m.session_id
+        row.embedding = _pack(vector)
+        row.dim = int(vector.size)
+        self.session.commit()
+        return row.id
+
     def get(self, memory_id: str) -> Memory | None:
         row = self.session.get(MemoryRow, memory_id)
         return _to_model(row) if row else None

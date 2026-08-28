@@ -20,6 +20,7 @@ class MemoryRow(Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # semantic|episodic
     namespace: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="local")
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -32,6 +33,13 @@ class MemoryRow(Base):
     __table_args__ = (
         Index("ix_memories_kind_ns_user", "kind", "namespace", "user_id"),
         Index("ix_memories_session", "session_id"),
+        Index(
+            "uq_memories_user_namespace_external_id",
+            "user_id",
+            "namespace",
+            "external_id",
+            unique=True,
+        ),
     )
 
 
