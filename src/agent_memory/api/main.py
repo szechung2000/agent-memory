@@ -84,7 +84,7 @@ async def remember(req: RememberRequest, db: Session = Depends(get_db)):
     return RememberResponse(id=memory_id)
 
 
-@app.put("/v1/memories/{external_id}", response_model=RememberResponse)
+@app.put("/v1/memories/{external_id:path}", response_model=RememberResponse)
 async def upsert_memory(
     external_id: str, req: RememberRequest, db: Session = Depends(get_db)
 ):

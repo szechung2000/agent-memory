@@ -90,3 +90,30 @@ def test_put_memory_is_keyed_and_idempotent(tmp_path, monkeypatch):
         "page_start": 1,
         "citation": {"locator": "p. 1"},
     }
+
+
+def test_namespace_scopes_recall_and_keyed_upserts_independently(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    external_id = "obsidian:Atomic/claim.md"
+
+    brain = client.put(
+        f"/v1/memories/{external_id}",
+        json={"content": "brain-only verified claim", "namespace": "brain"},
+    )
+    corpus = client.put(
+        f"/v1/memories/{external_id}",
+        json={"content": "corpus-only source evidence", "namespace": "paper-corpus"},
+    )
+
+    assert brain.status_code == corpus.status_code == 200
+    assert brain.json()["id"] != corpus.json()["id"]
+    brain_hits = client.post(
+        "/recall", json={"query": "claim evidence", "namespace": "brain", "k": 5}
+    ).json()
+    corpus_hits = client.post(
+        "/recall", json={"query": "claim evidence", "namespace": "paper-corpus", "k": 5}
+    ).json()
+    assert [hit["namespace"] for hit in brain_hits] == ["brain"]
+    assert [hit["content"] for hit in brain_hits] == ["brain-only verified claim"]
+    assert [hit["namespace"] for hit in corpus_hits] == ["paper-corpus"]
+    assert [hit["content"] for hit in corpus_hits] == ["corpus-only source evidence"]
