@@ -39,6 +39,7 @@ class PgVectorRepository:
                     kind VARCHAR(16) NOT NULL,
                     namespace VARCHAR(64) NOT NULL DEFAULT 'default',
                     user_id VARCHAR(64) NOT NULL DEFAULT 'local',
+                    external_id VARCHAR(255),
                     agent_id VARCHAR(64),
                     title TEXT,
                     content TEXT NOT NULL,
@@ -49,6 +50,15 @@ class PgVectorRepository:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
                 """
+            )
+        )
+        session.execute(
+            text("ALTER TABLE memories ADD COLUMN IF NOT EXISTS external_id VARCHAR(255)")
+        )
+        session.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_memories_user_namespace_external_id "
+                "ON memories (user_id, namespace, external_id)"
             )
         )
         session.execute(
@@ -82,6 +92,55 @@ class PgVectorRepository:
                 "title": m.title,
                 "content": m.content,
                 "metadata": __import__("json").dumps(m.metadata),
+                "session_id": m.session_id,
+                "embedding": v,
+                "dim": int(vector.size),
+            },
+        )
+        self.session.commit()
+        return mid
+
+    def upsert(self, external_id: str, m: Memory, vector: np.ndarray) -> str:
+        """Postgres implementation of the source-scoped keyed write contract."""
+        import json
+
+        v = "[" + ",".join(f"{x:.7g}" for x in vector.astype(np.float32)) + "]"
+        existing = self.session.execute(
+            text(
+                "SELECT id, metadata FROM memories WHERE user_id = :user_id "
+                "AND namespace = :namespace AND external_id = :external_id"
+            ),
+            {"user_id": m.user_id, "namespace": m.namespace, "external_id": external_id},
+        ).mappings().first()
+        mid = existing["id"] if existing else str(uuid.uuid4())
+        existing_metadata = (existing["metadata"] or {}) if existing else {}
+        metadata = {**existing_metadata, **m.metadata}
+        self.session.execute(
+            text(
+                """
+                INSERT INTO memories
+                    (id, kind, namespace, user_id, external_id, agent_id, title, content,
+                     metadata, session_id, embedding, dim)
+                VALUES
+                    (:id, :kind, :namespace, :user_id, :external_id, :agent_id, :title, :content,
+                     CAST(:metadata AS JSONB), :session_id, CAST(:embedding AS vector), :dim)
+                ON CONFLICT (user_id, namespace, external_id) DO UPDATE SET
+                    kind = EXCLUDED.kind, agent_id = EXCLUDED.agent_id, title = EXCLUDED.title,
+                    content = EXCLUDED.content, metadata = EXCLUDED.metadata,
+                    session_id = EXCLUDED.session_id, embedding = EXCLUDED.embedding,
+                    dim = EXCLUDED.dim
+                """
+            ),
+            {
+                "id": mid,
+                "kind": m.kind.value,
+                "namespace": m.namespace,
+                "user_id": m.user_id,
+                "external_id": external_id,
+                "agent_id": m.agent_id,
+                "title": m.title,
+                "content": m.content,
+                "metadata": json.dumps(metadata),
                 "session_id": m.session_id,
                 "embedding": v,
                 "dim": int(vector.size),

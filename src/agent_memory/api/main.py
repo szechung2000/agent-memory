@@ -54,6 +54,7 @@ class RememberResponse(BaseModel):
 class MemoryOut(BaseModel):
     id: str | None
     kind: MemoryKind
+    namespace: str
     title: str | None
     content: str
     metadata: dict
@@ -83,6 +84,18 @@ async def remember(req: RememberRequest, db: Session = Depends(get_db)):
     return RememberResponse(id=memory_id)
 
 
+@app.put("/v1/memories/{external_id:path}", response_model=RememberResponse)
+async def upsert_memory(
+    external_id: str, req: RememberRequest, db: Session = Depends(get_db)
+):
+    """Idempotently write a memory using a caller-controlled source key."""
+    emb = app.state.embedder
+    vec = (await run_in_threadpool(emb.embed, [req.content]))[0]
+    mem = Memory(**req.model_dump())
+    memory_id = await run_in_threadpool(MemoryRepository(db).upsert, external_id, mem, vec)
+    return RememberResponse(id=memory_id)
+
+
 @app.post("/recall", response_model=list[MemoryOut])
 async def recall(req: RecallRequest, db: Session = Depends(get_db)):
     emb = app.state.embedder
@@ -100,6 +113,7 @@ async def recall(req: RecallRequest, db: Session = Depends(get_db)):
         MemoryOut(
             id=m.id,
             kind=m.kind,
+            namespace=m.namespace,
             title=m.title,
             content=m.content,
             metadata=m.metadata,
