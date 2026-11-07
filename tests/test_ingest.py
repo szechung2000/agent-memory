@@ -4,7 +4,7 @@
 
 from agent_memory.core.chunker import chunk_text
 from agent_memory.evals.run_golden import make_eval_repo
-from agent_memory.ingest.pipeline import Ingester, parse_frontmatter
+from agent_memory.ingest.pipeline import Ingester, content_hash, parse_frontmatter
 
 
 def _ingester(tmp_path):
@@ -105,3 +105,43 @@ def test_ingest_directory(tmp_path):
     (tmp_path / "skip.me").write_text("not supported")
     res = ing.ingest_path(tmp_path)
     assert res.files_seen >= 2  # a.md and b.txt at minimum; c.pdf may error but counted
+
+
+def test_identical_text_is_independent_per_namespace_and_source(tmp_path):
+    ing = _ingester(tmp_path)
+    text = "A synthetic CMBS remittance shows a delinquency."
+    source_a = {"source": "synthetic/a.txt"}
+    source_b = {"source": "synthetic/b.txt"}
+
+    assert ing.ingest_text(text, metadata=source_a, namespace="cmbs").chunks_written == 1
+    assert ing.ingest_text(text, metadata=source_a, namespace="cmbs").duplicates_skipped == 1
+    assert ing.ingest_text(text, metadata=source_b, namespace="cmbs").chunks_written == 1
+    assert ing.ingest_text(text, metadata=source_a, namespace="research").chunks_written == 1
+
+    from agent_memory.core.embedding import get_embedder
+
+    qvec = get_embedder().embed([text])[0]
+    cmbs = ing.repo.recall(qvec, text, k=5, namespace="cmbs")
+    research = ing.repo.recall(qvec, text, k=5, namespace="research")
+    assert {m.metadata["source"] for m, _ in cmbs} == {
+        source_a["source"], source_b["source"]
+    }
+    assert len(research) == 1
+
+
+def test_legacy_global_hash_is_recognized_only_for_same_source(tmp_path):
+    ing = _ingester(tmp_path)
+    text = "Legacy source content for compatibility checks."
+    from agent_memory.core.embedding import get_embedder
+    from agent_memory.core.models import Memory
+
+    vector = get_embedder().embed([text])[0]
+    memory_id = ing.repo.write(
+        Memory(content=text, namespace="brain", metadata={"source": "legacy.txt"}), vector
+    )
+    ing._record(content_hash(text), memory_id)
+
+    assert ing.ingest_text(text, metadata={"source": "legacy.txt"}).duplicates_skipped == 1
+    assert ing.ingest_text(text, metadata={"source": "another.txt"}).chunks_written == 1
+    other = ing.ingest_text(text, metadata={"source": "legacy.txt"}, namespace="other")
+    assert other.chunks_written == 1

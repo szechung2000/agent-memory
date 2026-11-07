@@ -7,7 +7,7 @@ Vector similarity is handled outside these tables:
 
 from datetime import datetime
 
-from sqlalchemy import BLOB, JSON, DateTime, Float, Index, String, Text, func
+from sqlalchemy import BLOB, JSON, DateTime, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_memory.db.engine import Base
@@ -41,24 +41,3 @@ class MemoryRow(Base):
             unique=True,
         ),
     )
-
-
-class EntityRow(Base):
-    """v2 placeholder: entity graph nodes."""
-
-    __tablename__ = "entities"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    namespace: Mapped[str] = mapped_column(String(64), index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    etype: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    meta: Mapped[dict] = mapped_column(JSON, default=dict)
-
-
-class EdgeRow(Base):
-    """v2 placeholder: entity graph edges."""
-
-    __tablename__ = "edges"
-    src: Mapped[str] = mapped_column(String(36), primary_key=True)
-    dst: Mapped[str] = mapped_column(String(36), primary_key=True)
-    relation: Mapped[str] = mapped_column(String(64), primary_key=True)
-    weight: Mapped[float] = mapped_column(Float, default=1.0)

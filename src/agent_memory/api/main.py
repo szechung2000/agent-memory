@@ -25,10 +25,11 @@ from agent_memory.core.answer import (
     answer_question,
 )
 from agent_memory.core.config import get_settings
+from agent_memory.core.context import context_items
 from agent_memory.core.embedding import get_embedder
 from agent_memory.core.models import Memory, MemoryKind
-from agent_memory.db.engine import Base, get_engine, make_session_factory
-from agent_memory.db.pg_repository import PgVectorRepository, get_repository
+from agent_memory.db.engine import get_engine, initialize_database, make_session_factory
+from agent_memory.db.pg_repository import get_repository
 
 _factory: sessionmaker | None = None
 logger = logging.getLogger("agent_memory.api")
@@ -44,12 +45,7 @@ def _event(name: str, **fields: object) -> None:
 async def lifespan(app: FastAPI):
     global _factory
     engine = get_engine()
-    if engine.dialect.name == "postgresql":
-        # The SQLite ORM schema stores BLOBs; Postgres needs the pgvector schema.
-        with Session(engine) as session:
-            PgVectorRepository(session)  # create the extension/table/indexes once
-    else:
-        Base.metadata.create_all(engine)
+    initialize_database(engine)
     _factory = make_session_factory(engine)
     app.state.embedder = get_embedder()
     try:
@@ -292,16 +288,15 @@ async def context(
     semantic_hits = []
     if query:
         emb = app.state.embedder
-        qvec = (await run_in_threadpool(emb.embed, [query]))[0]
-        hits = await run_in_threadpool(repo.recall, qvec, query, k)
+        hits = await run_in_threadpool(context_items, repo, emb, query, k)
         semantic_hits = [
             {
-                "id": m.id,
-                "content": m.content,
-                "score": round(s, 4),
-                "source": m.metadata.get("source"),
-                "metadata": m.metadata,
+                "id": hit["id"],
+                "content": hit["content"],
+                "score": round(hit["score"], 4),
+                "source": hit["source"],
+                "metadata": hit["metadata"],
             }
-            for m, s in hits
+            for hit in hits
         ]
     return {"session": session, "semantic": semantic_hits, "recent": recent}

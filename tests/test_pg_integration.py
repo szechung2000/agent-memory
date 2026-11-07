@@ -59,3 +59,36 @@ def test_pg_kind_filter(pg_repo):
 
     res = repo.recall(emb.embed(["alpha"])[0], "alpha", k=5, kind="episodic")
     assert [m.content for m, _ in res] == ["episodic alpha event"]
+
+
+def test_pg_rejects_silent_metadata_filters(pg_repo):
+    import pytest
+
+    repo, _, _ = pg_repo
+    with pytest.raises(ValueError, match="not implemented"):
+        repo.recall(np.ones(384, dtype=np.float32), "loan", filters={"source": "a.txt"})
+
+
+def test_postgres_cli_bootstrap_and_scoped_ingestion(isolated_pg_uri):
+    from agent_memory.core.embedding import LocalHashEmbedder
+    from agent_memory.db.engine import create_repository_for_url
+    from agent_memory.ingest.pipeline import Ingester
+
+    repo = create_repository_for_url(isolated_pg_uri)
+    ingester = Ingester(repo, LocalHashEmbedder())
+    text = "Synthetic CMBS loan A has a September remittance."
+    try:
+        first = ingester.ingest_text(text, namespace="cmbs", metadata={"source": "a.txt"})
+        again = ingester.ingest_text(text, namespace="cmbs", metadata={"source": "a.txt"})
+        other = ingester.ingest_text(text, namespace="cmbs", metadata={"source": "b.txt"})
+        assert first.chunks_written == 1
+        assert again.duplicates_skipped == 1
+        assert other.chunks_written == 1
+        hits = repo.recall(
+            LocalHashEmbedder().embed([text])[0], text, k=5, namespace="cmbs"
+        )
+        assert {m.metadata["source"] for m, _ in hits} == {"a.txt", "b.txt"}
+    finally:
+        engine = repo.session.get_bind()
+        repo.session.close()
+        engine.dispose()

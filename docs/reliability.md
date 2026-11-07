@@ -63,6 +63,8 @@ reverse-proxy access logging, tracing, retention, and PII policy separately.
    management before any public deployment.
 2. Replace schema-on-start with reviewed forward migrations, backups and
    restore tests; introduce database connection limits and staged rollouts.
+   Runtime initialization is shared by the HTTP server, CLI, and evaluation
+   harness, but Alembic's initial revision is still a scaffold.
 3. Export structured traces and metrics to OpenTelemetry/Prometheus, configure
    alerts, and test behavior under concurrent load and dependency outages.
 4. Record model cost with versioned pricing and run the labeled CMBS benchmark
