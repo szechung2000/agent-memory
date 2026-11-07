@@ -1,9 +1,15 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 COPY pyproject.toml ./
+COPY README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
 EXPOSE 8000
 CMD ["uvicorn", "agent_memory.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Test dependencies and test sources stay out of the API runtime image.
+FROM runtime AS test
+RUN pip install --no-cache-dir pytest pytest-asyncio
+COPY tests ./tests

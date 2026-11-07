@@ -175,6 +175,44 @@ Docker Compose starts PostgreSQL/pgvector and the API on **localhost only**. The
 SQLite command and Docker Compose are alternatives; stop one API before starting the other.
 Redis is not used by the shipped code.
 
+### Test the real PostgreSQL/pgvector API
+
+Run the isolated end-to-end stack with **one command** (Docker Compose v2 required):
+
+```bash
+docker compose -p agent-memory-test --profile test up --build \
+  --abort-on-container-exit --exit-code-from integration integration
+docker compose -p agent-memory-test --profile test down --volumes --remove-orphans
+```
+
+The test profile starts a temporary PostgreSQL/pgvector container **without a published
+port or persistent volume**. Each test also creates and drops its own randomly named
+schema. This checks HTTP writes, idempotent upserts, vector storage, retrieval, context,
+cited answers, abstention, and the HNSW index. It uses deterministic test embeddings
+and a scripted answer generator: **no API key, external model, or production data**.
+The `postgres-integration` CI job runs the same stack for each PR.
+
+For an existing, disposable Postgres test database, `AM_TEST_PG_URI=... uv run pytest
+tests/test_pg_integration.py tests/test_pg_api_integration.py` runs the same tests without
+Docker. The configured test role must be allowed to create schemas and install pgvector.
+Never point `AM_TEST_PG_URI` at a production database.
+
+### Operations and failure behavior
+
+- `/healthz` checks the process; `/readyz` verifies a live database query. A failed
+  database operation returns **503** with a generic error, not a SQL statement.
+- Every HTTP response contains `X-Request-ID` (a safe caller-supplied ID is retained).
+  Structured JSON logs include method, route template, response code, and duration,
+  without the question, retrieved text, or raw URL parameters.
+- Successful `/answer` requests log answer/abstention state, retrieved count,
+  reranker use, model name, and provider token usage when available.
+- Model timeouts return **504**; connection/rate-limit failures return **503**;
+  other provider errors return **502**. Provider error bodies are not returned.
+
+See [reliability and test boundary](docs/reliability.md) for exact test scope and
+remaining work. The API still has **no authentication, authorization, or rate limiting**;
+do not deploy it on a public network as-is.
+
 ## Agent and CLI interfaces
 
 An LLM caller can pass the exposed function schemas to its tool-calling API:
@@ -273,7 +311,7 @@ See [ablation results](docs/ablation-report.md) and the
   safe abstention, targeted retrieval tests, and bounded tool-calling rounds. These
   controls still do not prove semantic answer correctness.
 - **What would production require?** Authentication, tenant authorization, rate limits,
-  migrations, observability, retries, corpus-scale evaluations, and claim-level factual
+  migrations, distributed tracing and alerts, corpus-scale evaluations, and claim-level factual
   verification beyond citation text matching.
   Do **not** expose this prototype's unauthenticated API to the public internet.
 
