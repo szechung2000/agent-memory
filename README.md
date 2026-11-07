@@ -63,20 +63,38 @@ The response also returns a structured `citations` list with the memory ID, the 
 source quote, file identifier, and ingestion metadata. Reference numbers depend on ranking.
 See [live LLM answers](#optional-live-llm-answers) for the real generation path.
 
+### Explore the workflow in a browser
+
+For an interview walkthrough, start the read-only **CMBS RAG Lab**:
+
+```bash
+uv run uvicorn agent_memory.demo.web:app --host 127.0.0.1 --port 8000
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Choose from 45 labeled
+synthetic CMBS questions to compare real baseline retrieval with BM25 reranking
+on the **same candidate pool**. Inspect the top-five source documents, evidence
+labels, and recall metrics. A separate panel exercises real citation validation
+and an abstention case with a **scripted** generator, clearly marked as not a
+live LLM. No model download, API key, or database server is required.
+
+The browser demo uses an isolated in-memory SQLite corpus. It does not ingest
+private documents, make paid model calls, or measure production answer quality.
+
 ## Architecture
 
 ```mermaid
 flowchart TD
-    A["Documents / agent events"] --> B["Parse, chunk, deduplicate"]
-    B --> C["Embed and store memory"]
-    C --> D["SQLite or PostgreSQL + pgvector"]
-    E["Agent task / question"] --> F["Memory tools / REST API"]
-    F --> G["Hybrid retrieval + temporal ranking"]
-    D --> G
-    G --> H["Ranked evidence + source IDs"]
-    H --> I["LLM drafts claims + quotes"]
-    I --> J["Verify IDs and exact quotes"]
-    J --> K["Cited answer or abstention"]
+    subgraph STORE["Store memory"]
+        direction LR
+        A["Documents / events"] --> B["Chunk and embed"] --> C[("SQLite / pgvector")]
+    end
+    subgraph ANSWER["Answer questions"]
+        direction LR
+        D["Question"] --> E["Retrieve and rerank"] --> F["Draft claims"] --> G["Verify source quotes"]
+    end
+    C --> E
+    G --> H["Citations or abstention"]
 ```
 
 | Component | Implementation | Why it matters |

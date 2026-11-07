@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>CMBS RAG Lab — Agent Memory</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09121d; --surface: #101f2d; --raised: #152838;
+      --line: #2c4352; --text: #f2f7f8; --muted: #a3bbc5;
+      --accent: #62dfbb; --orange: #f9be75; --blue: #92b8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; color: var(--text); background: radial-gradient(circle at 75% -10%, #173d45 0, var(--bg) 42%);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    button, select { font: inherit; }
+    a { color: var(--accent); }
+    .container { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+    .topbar { border-bottom: 1px solid var(--line); background: #09151fc9; }
+    .topbar .container { display: flex; justify-content: space-between; align-items: center; min-height: 70px; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: .01em; }
+    .brandmark { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: var(--accent); color: #092c2c; font-weight: 900; }
+    .topnote, .eyebrow { font-size: .76rem; text-transform: uppercase; letter-spacing: .13em; font-weight: 800; }
+    .topnote { color: var(--muted); text-transform: none; letter-spacing: 0; font-size: .85rem; }
+    .eyebrow { color: var(--accent); }
+    .hero { padding: 52px 0 32px; max-width: 800px; }
+    h1 { font-size: clamp(2.3rem, 5vw, 4rem); line-height: 1.08; letter-spacing: -.055em; margin: 10px 0 18px; }
+    h2 { margin: 0 0 12px; font-size: 1.33rem; letter-spacing: -.025em; }
+    h3 { margin: 0; font-size: 1.05rem; }
+    p { color: var(--muted); margin: 0; }
+    .hero p { font-size: 1.05rem; max-width: 720px; }
+    .tag { display: inline-flex; padding: 5px 10px; border-radius: 999px; border: 1px solid #3a716b; color: var(--accent); font-size: .75rem; font-weight: 700; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin: 12px 0 30px; }
+    .metric { padding: 22px; border: 1px solid var(--line); background: var(--surface); border-radius: 16px; }
+    .metric .number { font-size: 2rem; font-weight: 800; line-height: 1.2; letter-spacing: -.04em; margin: 8px 0 2px; }
+    .metric .label { color: var(--muted); font-size: .84rem; }
+    .metric.emphasis { border-color: #367969; background: #12342f; }
+    .metric.emphasis .number { color: var(--accent); }
+    .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line); margin-bottom: 25px; overflow-x: auto; }
+    .tabs button { flex: none; background: none; border: 0; color: var(--muted); padding: 14px 18px; cursor: pointer; border-bottom: 3px solid transparent; }
+    .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 800; }
+    .panel { display: none; padding-bottom: 65px; }
+    .panel.active { display: block; }
+    .control-card, .case-head, .evidence-column, .detail-panel, .citation-card {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px;
+    }
+    .control-card { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 20px; }
+    label { display: block; color: var(--muted); font-size: .84rem; font-weight: 700; margin-bottom: 8px; }
+    select { width: 100%; background: var(--raised); border: 1px solid #456074; border-radius: 10px; color: var(--text); padding: 12px; cursor: pointer; }
+    .pill-note { color: var(--orange); font-size: .78rem; font-weight: 700; }
+    .case-head { margin: 16px 0; display: flex; justify-content: space-between; gap: 15px; align-items: start; }
+    .case-head p { margin-top: 5px; }
+    .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .column-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .caption { color: var(--muted); font-size: .78rem; }
+    .evidence { padding: 15px; background: var(--raised); border: 1px solid #274253; border-radius: 11px; margin-top: 10px; }
+    .evidence.gold { border-color: #3a977a; }
+    .evidence-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 9px; }
+    .doc-id { font-weight: 800; font-size: .92rem; }
+    .evidence .source { color: var(--blue); font-size: .78rem; word-break: break-word; margin: 7px 0; }
+    .evidence .text { font-size: .89rem; color: #cfdee5; }
+    .gold-tag { display: inline-block; color: var(--accent); border: 1px solid #3a977a; padding: 2px 8px; border-radius: 8px; font-size: .7rem; font-weight: 800; }
+    .score { color: var(--muted); font-size: .77rem; }
+    .detail-panel { margin-top: 16px; }
+    .detail-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .detail-grid strong { display: block; font-size: 1.35rem; color: var(--accent); }
+    .detail-grid span { color: var(--muted); font-size: .8rem; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+    .action { color: #082828; background: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 16px; font-weight: 800; cursor: pointer; }
+    .action.secondary { color: var(--text); background: var(--raised); border-color: var(--line); }
+    .action:disabled { cursor: wait; opacity: .55; }
+    .citation-card { margin: 14px 0; }
+    .answer { margin-top: 14px; border-left: 3px solid var(--accent); padding: 6px 0 6px 16px; font-size: 1.08rem; color: var(--text); }
+    .steps { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin: 20px 0; }
+    .step { border: 1px solid var(--line); border-radius: 10px; background: var(--raised); padding: 13px; }
+    .step b { display: block; color: var(--accent); }
+    .step span { font-size: .79rem; color: var(--muted); }
+    .quote { border-left: 3px solid var(--blue); padding-left: 13px; margin-top: 9px; color: var(--text); }
+    .method-list { display: grid; gap: 14px; max-width: 850px; }
+    .method-list article { background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 19px; }
+    .method-list article p { margin-top: 7px; }
+    .error { color: #ffb9a9; padding: 12px; border: 1px solid #8d524e; border-radius: 9px; }
+    footer { border-top: 1px solid var(--line); padding: 24px 0 45px; font-size: .84rem; color: var(--muted); }
+    @media (max-width: 850px) {
+      .metric-grid { grid-template-columns: repeat(2,1fr); }
+      .comparison, .control-card { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: repeat(2,1fr); }
+    }
+    @media (max-width: 480px) {
+      .container { padding: 0 14px; }
+      .topnote { display: none; }
+      .metric { padding: 15px; }
+      .metric .number { font-size: 1.5rem; }
+      .case-head { flex-direction: column; }
+      .detail-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="container">
+    <div class="brand"><span class="brandmark">AM</span><span>Agent Memory <span style="color:var(--accent)">/ CMBS Lab</span></span></div>
+    <span class="topnote">Offline · Deterministic · Synthetic data</span>
+  </div></header>
+  <main class="container">
+    <div class="hero">
+      <div class="eyebrow">Forward-deployed AI engineering showcase</div>
+      <h1>Evidence first.<br>Answers second.</h1>
+      <p>Explore a real retrieval pipeline on synthetic commercial mortgage data. Compare baseline results with BM25 reranking, inspect labeled evidence, and test citation validation without an API key.</p>
+    </div>
+    <div class="metric-grid" aria-label="Benchmark summary">
+      <div class="metric"><div class="label">Synthetic source files</div><div class="number" id="metric-docs">—</div><div class="caption">Fixed local corpus</div></div>
+      <div class="metric"><div class="label">Labeled questions</div><div class="number" id="metric-questions">—</div><div class="caption">Five difficulty groups</div></div>
+      <div class="metric"><div class="label">Baseline evidence recall@5</div><div class="number" id="metric-base">—</div><div class="caption">Hash + keyword fusion</div></div>
+      <div class="metric emphasis"><div class="label">BM25 reranked recall@5</div><div class="number" id="metric-rerank">—</div><div class="caption" id="metric-delta">Same candidate pool</div></div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Demo views">
+      <button class="active" role="tab" aria-selected="true" data-panel="explorer">Evidence explorer</button>
+      <button role="tab" aria-selected="false" data-panel="citations">Citations and abstention</button>
+      <button role="tab" aria-selected="false" data-panel="method">How it works</button>
+    </nav>
+    <section id="explorer" class="panel active" role="tabpanel">
+      <div class="control-card">
+        <div><label for="question-picker">Choose a labeled synthetic CMBS question</label><select id="question-picker" aria-label="CMBS benchmark question"><option>Loading questions…</option></select></div>
+        <div class="pill-note">Gold labels score results only; retrieval never sees them.</div>
+      </div>
+      <div id="case-head" class="case-head"><div><h2>Select a question</h2><p>Compare the same candidate pool before and after reranking.</p></div></div>
+      <div class="comparison">
+        <div class="evidence-column"><div class="column-head"><h3>Baseline retrieval</h3><span class="tag">Dense + keyword</span></div><div id="baseline-list"><p>Waiting for results…</p></div></div>
+        <div class="evidence-column"><div class="column-head"><h3>After reranking</h3><span class="tag">BM25</span></div><div id="reranked-list"><p>Waiting for results…</p></div></div>
+      </div>
+      <div class="detail-panel"><h3>Per-question evidence quality</h3><div class="detail-grid" id="case-metrics" style="margin-top:12px"><p>Choose a question above.</p></div></div>
+    </section>
+    <section id="citations" class="panel" role="tabpanel">
+      <h2>Make evidence verifiable</h2>
+      <p>These two scenarios run the actual memory retrieval and citation-verification code with a clearly labeled scripted generator. No LLM or evaluation labels are used.</p>
+      <div class="button-row">
+        <button class="action" id="run-supported">Run cited answer</button>
+        <button class="action secondary" id="run-abstain">Run abstention case</button>
+      </div>
+      <div class="steps">
+        <div class="step"><b>01 · Ingest</b><span>Three synthetic sources</span></div>
+        <div class="step"><b>02 · Retrieve</b><span>Rank evidence</span></div>
+        <div class="step"><b>03 · Draft</b><span>Scripted claim or abstain</span></div>
+        <div class="step"><b>04 · Verify</b><span>Exact source quote</span></div>
+      </div>
+      <div id="citation-result" class="citation-card"><p>Choose a scenario to inspect the answer, retrieved evidence, and verified source quote.</p></div>
+    </section>
+    <section id="method" class="panel" role="tabpanel">
+      <h2>Design choices and boundaries</h2>
+      <div class="method-list">
+        <article><h3>01 · Repeatable data</h3><p>32 synthetic CMBS source documents and 45 labeled questions across direct, multi-document, temporal, unanswerable, and corrected-data cases.</p></article>
+        <article><h3>02 · Fair A/B comparison</h3><p>Both variants start from the same 20 retrieved candidates. BM25 changes their order; labels are used only after retrieval to score recall@5, recall@10, and support coverage.</p></article>
+        <article><h3>03 · Citation safety</h3><p>The cited-answer example uses a scripted generator and the production quote verifier. A source ID must exist in retrieval, and the quote must occur in that source. Quote matching does not prove logical entailment.</p></article>
+        <article><h3>04 · Honest limitations</h3><p>Hash embeddings are a deterministic local fallback, not strong semantic embeddings. The browser demo makes no live LLM calls and is not a production accuracy or security claim.</p></article>
+      </div>
+    </section>
+  </main>
+  <footer><div class="container">Agent Memory · Synthetic CMBS RAG Lab · No real borrower data, credentials, or model calls</div></footer>
+  <script>
+    "use strict";
+    const el = id => document.getElementById(id);
+    const make = (tag, cls, value) => {
+      const element = document.createElement(tag);
+      if (cls) element.className = cls;
+      if (value !== undefined) element.textContent = String(value);
+      return element;
+    };
+    const percent = v => v == null ? "—" : `${(v * 100).toFixed(1)}%`;
+    const number = v => v == null ? "—" : Number(v).toFixed(2);
+    async function request(path) {
+      const response = await fetch(path, {headers: {"Accept": "application/json"}});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }
+    function showError(target, message) {
+      target.replaceChildren(make("div", "error", `Could not load results: ${message}`));
+    }
+    document.querySelectorAll(".tabs button").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".tabs button").forEach(item => {
+          const active = item === button;
+          item.classList.toggle("active", active);
+          item.setAttribute("aria-selected", String(active));
+        });
+        document.querySelectorAll(".panel").forEach(panel => panel.classList.toggle("active", panel.id === button.dataset.panel));
+      });
+    });
+    function evidenceCard(entry) {
+      const card = make("article", `evidence${entry.gold_evidence ? " gold" : ""}`);
+      const top = make("div", "evidence-top");
+      top.append(make("span", "doc-id", `#${entry.rank}  ${entry.doc_id}`));
+      if (entry.gold_evidence) top.append(make("span", "gold-tag", "Labeled support"));
+      else top.append(make("span", "score", `Score ${number(entry.score)}`));
+      card.append(top, make("div", "source", entry.source), make("div", "text", entry.content));
+      return card;
+    }
+    function renderCase(data) {
+      const head = el("case-head");
+      const details = make("div");
+      details.append(make("div", "eyebrow", `${data.case.category.replaceAll("_", " ")} · ${data.case.id}`));
+      details.append(make("h2", "", data.case.question));
+      details.append(make("p", "", data.case.answerable ? `Labeled answer: ${data.case.expected_answer}` : "Unanswerable by this corpus: no supported gold evidence."));
+      head.replaceChildren(details, make("span", "tag", `${number(data.latency_ms.retrieval)} ms retrieval`));
+      for (const key of ["baseline", "reranked"]) {
+        const list = el(`${key}-list`);
+        list.replaceChildren(...data[key].top_5.map(evidenceCard));
+      }
+      const metrics = el("case-metrics");
+      if (!data.case.answerable) {
+        metrics.replaceChildren(make("p", "", "An unanswerable question is scored for abstention when answers are evaluated, not for retrieval recall."));
+        return;
+      }
+      const items = [
+        ["Baseline recall@5", percent(data.baseline.metrics.evidence_recall_at_5)],
+        ["Reranked recall@5", percent(data.reranked.metrics.evidence_recall_at_5)],
+        ["Rerank time", `${number(data.latency_ms.reranking)} ms`],
+      ];
+      metrics.replaceChildren(...items.map(([name,value]) => {
+        const holder = make("div");
+        holder.append(make("strong", "", value), make("span", "", name));
+        return holder;
+      }));
+    }
+    async function loadCase(id) {
+      if (!id) return;
+      try { renderCase(await request(`/api/questions/${encodeURIComponent(id)}`)); }
+      catch (error) { showError(el("case-head"), error.message); }
+    }
+    async function initialize() {
+      try {
+        const [summary, list] = await Promise.all([request("/api/benchmark"), request("/api/questions")]);
+        el("metric-docs").textContent = summary.documents;
+        el("metric-questions").textContent = summary.questions;
+        el("metric-base").textContent = percent(summary.metrics.baseline.evidence_recall_at_5);
+        el("metric-rerank").textContent = percent(summary.metrics.reranked.evidence_recall_at_5);
+        const delta = summary.delta.evidence_recall_at_5;
+        el("metric-delta").textContent = `${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(1)} percentage points over baseline`;
+        const picker = el("question-picker");
+        const groups = new Map();
+        for (const item of list.cases) {
+          if (!groups.has(item.category)) groups.set(item.category, []);
+          groups.get(item.category).push(item);
+        }
+        picker.replaceChildren();
+        for (const [category, cases] of groups) {
+          const group = document.createElement("optgroup");
+          group.label = category.replaceAll("_", " ");
+          for (const item of cases) {
+            const option = make("option", "", `${item.id} · ${item.question}`);
+            option.value = item.id;
+            group.append(option);
+          }
+          picker.append(group);
+        }
+        picker.value = "conflict-01";
+        picker.addEventListener("change", () => loadCase(picker.value));
+        await loadCase(picker.value);
+      } catch (error) { showError(el("case-head"), error.message); }
+    }
+    async function runCitation(scenario) {
+      const target = el("citation-result");
+      target.replaceChildren(make("p", "", "Running offline retrieval and quote verification…"));
+      try {
+        const data = await request(`/api/citations/${encodeURIComponent(scenario)}`);
+        const badge = make("span", "tag", data.status === "answered" ? "Verified citation" : "Abstained");
+        target.replaceChildren(badge, make("h3", "", data.query), make("div", "answer", data.answer));
+        target.append(make("p", "", `${data.ingest.chunks_written} stored chunks · ${data.retrieved_count} retrieved documents · ${data.mode}`));
+        for (const citation of data.citations) {
+          const quote = make("div", "quote", `“${citation.quote}”`);
+          const source = make("div", "source", `${citation.ref} · ${citation.source}`);
+          target.append(quote, source);
+        }
+        const details = document.createElement("details");
+        details.style.marginTop = "16px";
+        details.append(make("summary", "", "Inspect all retrieved evidence"));
+        for (const hit of data.retrieved_evidence) {
+          const item = make("article", "evidence");
+          item.append(make("div", "source", hit.source), make("p", "", hit.content));
+          details.append(item);
+        }
+        target.append(details);
+      } catch (error) { showError(target, error.message); }
+    }
+    el("run-supported").addEventListener("click", () => runCitation("supported"));
+    el("run-abstain").addEventListener("click", () => runCitation("abstain"));
+    initialize();
+  </script>
+</body>
+</html>
