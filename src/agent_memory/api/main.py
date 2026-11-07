@@ -1,10 +1,19 @@
 """FastAPI application: memory storage, retrieval, and cited RAG answers."""
 
+import json
+import logging
+import re
+import time
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
+from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError, RateLimitError
 from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from agent_memory.core.answer import (
@@ -22,6 +31,13 @@ from agent_memory.db.engine import Base, get_engine, make_session_factory
 from agent_memory.db.pg_repository import PgVectorRepository, get_repository
 
 _factory: sessionmaker | None = None
+logger = logging.getLogger("agent_memory.api")
+_REQUEST_ID = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
+
+
+def _event(name: str, **fields: object) -> None:
+    """Emit structured metadata; never log memory text or user queries."""
+    logger.info(json.dumps({"event": name, **fields}, sort_keys=True))
 
 
 @asynccontextmanager
@@ -44,6 +60,59 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="agent-memory", version="0.1.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def trace_requests(request: Request, call_next):
+    supplied = request.headers.get("x-request-id", "")
+    request_id = supplied if _REQUEST_ID.fullmatch(supplied) else uuid.uuid4().hex
+    request.state.request_id = request_id
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        _event("request_unhandled", request_id=request_id, method=request.method)
+        raise
+    route = request.scope.get("route")
+    path_template = getattr(route, "path", "<unmatched>")
+    _event(
+        "http_request",
+        request_id=request_id,
+        method=request.method,
+        route=path_template,
+        status_code=response.status_code,
+        duration_ms=round((time.perf_counter() - started) * 1000, 2),
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_unavailable(request: Request, exc: SQLAlchemyError):
+    # Do not leak SQL statements, credentials, or database connection details.
+    logger.error("Database operation failed (request_id=%s)", request.state.request_id)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database is temporarily unavailable"},
+    )
+
+
+@app.exception_handler(APIError)
+async def model_unavailable(request: Request, exc: APIError):
+    if isinstance(exc, APITimeoutError):
+        status, message = 504, "Model provider timed out"
+    elif isinstance(exc, (RateLimitError, APIConnectionError)):
+        status, message = 503, "Model provider is temporarily unavailable"
+    elif isinstance(exc, APIStatusError):
+        status, message = 502, "Model provider returned an error"
+    else:
+        status, message = 502, "Model provider request failed"
+    logger.warning(
+        "Model operation failed (request_id=%s, error_type=%s)",
+        request.state.request_id,
+        type(exc).__name__,
+    )
+    return JSONResponse(status_code=status, content={"detail": message})
 
 
 def get_db():
@@ -115,6 +184,13 @@ def healthz():
     return {"status": "ok"}
 
 
+@app.get("/readyz")
+def readyz(db: Session = Depends(get_db)):
+    """Readiness requires a successful database round trip."""
+    db.execute(text("SELECT 1"))
+    return {"status": "ready"}
+
+
 @app.post("/remember", response_model=RememberResponse)
 async def remember(req: RememberRequest, db: Session = Depends(get_db)):
     emb = app.state.embedder
@@ -167,12 +243,13 @@ async def recall(req: RecallRequest, db: Session = Depends(get_db)):
 @app.post("/answer", response_model=AnswerResult)
 async def answer(
     req: AnswerRequest,
+    request: Request,
     db: Session = Depends(get_db),
     generator: AnswerGenerator = Depends(get_answer_generator),
 ):
     """Generate only source-referenced claims; reject invalid or missing quotes."""
     try:
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             answer_question,
             get_repository(db),
             app.state.embedder,
@@ -183,6 +260,19 @@ async def answer(
             user_id=req.user_id,
             rerank=req.rerank,
         )
+        usage = getattr(generator, "last_usage", None) or {}
+        _event(
+            "rag_answer",
+            request_id=request.state.request_id,
+            model=getattr(generator, "model", "test-or-custom"),
+            status=result.status,
+            retrieved_count=result.retrieved_count,
+            reranked=result.reranked,
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens"),
+        )
+        return result
     except CitationValidationError as exc:
         # Never send unverified model-generated claims back to the caller.
         raise HTTPException(status_code=502, detail=str(exc)) from exc

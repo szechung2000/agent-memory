@@ -109,8 +109,10 @@ class OpenAIAnswerGenerator:
 
         self.client = OpenAI(api_key=api_key, timeout=30.0, max_retries=1)
         self.model = model
+        self.last_usage: dict[str, int | None] = {}
 
     def generate(self, question: str, evidence: list[Evidence]) -> str:
+        self.last_usage = {}
         sources = [
             {
                 "source_id": e.ref,
@@ -134,6 +136,13 @@ class OpenAIAnswerGenerator:
                 },
             ],
         )
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.last_usage = {
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            }
         content = response.choices[0].message.content
         if not content:
             raise CitationValidationError("The model returned no answer data")

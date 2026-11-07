@@ -26,5 +26,35 @@ services:
       db:
         condition: service_healthy
 
+  # Opt-in, isolated PostgreSQL instance; no host port or persistent volume.
+  test-db:
+    profiles: [test]
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: memory_test
+      POSTGRES_PASSWORD: memory_test
+      POSTGRES_DB: agent_memory_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memory_test -d agent_memory_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  integration:
+    profiles: [test]
+    build:
+      context: .
+      target: test
+    environment:
+      AM_TEST_PG_URI: postgresql+psycopg://memory_test:memory_test@test-db:5432/agent_memory_test
+      AM_DATABASE_URL: postgresql+psycopg://memory_test:memory_test@test-db:5432/agent_memory_test
+      AM_OPENAI_API_KEY: ""
+    depends_on:
+      test-db:
+        condition: service_healthy
+    command: ["pytest", "-q", "tests/test_pg_integration.py", "tests/test_pg_api_integration.py"]
+
 volumes:
   pgdata:

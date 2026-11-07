@@ -1,30 +1,18 @@
 """Integration tests for the pgvector backend (skipped if no PG server)."""
 
-import os
-
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("AM_TEST_PG_URI"), reason="no AM_TEST_PG_URI; pg integration skipped"
-)
-
 
 @pytest.fixture()
-def pg_repo():
-    from sqlalchemy import create_engine, text
+def pg_repo(isolated_pg_uri):
+    from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
     from agent_memory.core.models import Memory, MemoryKind
     from agent_memory.db.pg_repository import PgVectorRepository
 
-    uri = os.environ["AM_TEST_PG_URI"]
-    if uri.startswith("postgresql://"):
-        uri = uri.replace("postgresql://", "postgresql+psycopg://", 1)
-    engine = create_engine(uri)
-    with engine.connect() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS memories"))
-        conn.commit()
+    engine = create_engine(isolated_pg_uri)
     session = sessionmaker(bind=engine)()
     yield PgVectorRepository(session), Memory, MemoryKind
     session.close()

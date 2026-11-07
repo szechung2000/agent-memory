@@ -21,3 +21,13 @@ jobs:
         run: uv run pytest -q
       - name: Synthetic CMBS benchmark smoke
         run: uv run python -m agent_memory.evals.cmbs_benchmark --output /tmp/cmbs-rag-benchmark.json
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run isolated PostgreSQL and pgvector integration tests
+        run: docker compose -p agent-memory-ci --profile test up --build --abort-on-container-exit --exit-code-from integration integration
+      - name: Remove integration containers and temporary data
+        if: always()
+        run: docker compose -p agent-memory-ci --profile test down --volumes --remove-orphans
