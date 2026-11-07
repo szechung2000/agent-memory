@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from agent_memory.core.embedding import get_embedder
 from agent_memory.core.models import Memory, MemoryKind
 from agent_memory.db.engine import Base, get_engine, make_session_factory
-from agent_memory.db.repository import MemoryRepository
+from agent_memory.db.pg_repository import PgVectorRepository, get_repository
 
 _factory: sessionmaker | None = None
 
@@ -19,16 +19,27 @@ _factory: sessionmaker | None = None
 async def lifespan(app: FastAPI):
     global _factory
     engine = get_engine()
-    Base.metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        # The SQLite ORM schema stores BLOBs; Postgres needs the pgvector schema.
+        with Session(engine) as session:
+            PgVectorRepository(session)  # create the extension/table/indexes once
+    else:
+        Base.metadata.create_all(engine)
     _factory = make_session_factory(engine)
     app.state.embedder = get_embedder()
-    yield
+    try:
+        yield
+    finally:
+        _factory = None
+        engine.dispose()
 
 
 app = FastAPI(title="agent-memory", version="0.1.0", lifespan=lifespan)
 
 
 def get_db():
+    if _factory is None:
+        raise RuntimeError("The database session factory is not initialized")
     s = _factory()
     try:
         yield s
@@ -80,7 +91,7 @@ async def remember(req: RememberRequest, db: Session = Depends(get_db)):
     emb = app.state.embedder
     vec = (await run_in_threadpool(emb.embed, [req.content]))[0]
     mem = Memory(**req.model_dump())
-    memory_id = await run_in_threadpool(MemoryRepository(db).write, mem, vec)
+    memory_id = await run_in_threadpool(get_repository(db).write, mem, vec)
     return RememberResponse(id=memory_id)
 
 
@@ -92,7 +103,7 @@ async def upsert_memory(
     emb = app.state.embedder
     vec = (await run_in_threadpool(emb.embed, [req.content]))[0]
     mem = Memory(**req.model_dump())
-    memory_id = await run_in_threadpool(MemoryRepository(db).upsert, external_id, mem, vec)
+    memory_id = await run_in_threadpool(get_repository(db).upsert, external_id, mem, vec)
     return RememberResponse(id=memory_id)
 
 
@@ -101,7 +112,7 @@ async def recall(req: RecallRequest, db: Session = Depends(get_db)):
     emb = app.state.embedder
     qvec = (await run_in_threadpool(emb.embed, [req.query]))[0]
     results = await run_in_threadpool(
-        MemoryRepository(db).recall,
+        get_repository(db).recall,
         qvec,
         req.query,
         req.k,
@@ -131,12 +142,21 @@ async def context(
     k: int = 5,
     db: Session = Depends(get_db),
 ):
-    repo = MemoryRepository(db)
+    repo = get_repository(db)
     recent = []
     semantic_hits = []
     if query:
         emb = app.state.embedder
         qvec = (await run_in_threadpool(emb.embed, [query]))[0]
         hits = await run_in_threadpool(repo.recall, qvec, query, k)
-        semantic_hits = [{"content": m.content, "score": round(s, 4)} for m, s in hits]
+        semantic_hits = [
+            {
+                "id": m.id,
+                "content": m.content,
+                "score": round(s, 4),
+                "source": m.metadata.get("source"),
+                "metadata": m.metadata,
+            }
+            for m, s in hits
+        ]
     return {"session": session, "semantic": semantic_hits, "recent": recent}

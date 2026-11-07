@@ -117,7 +117,14 @@ class MemoryToolExecutor:
         results = self.repo.recall(qvec, query, k=k, kind=kind, namespace=namespace)
         return json.dumps(
             [
-                {"content": m.content, "kind": m.kind.value, "score": score}
+                {
+                    "id": m.id,
+                    "content": m.content,
+                    "kind": m.kind.value,
+                    "score": score,
+                    "source": m.metadata.get("source"),
+                    "metadata": m.metadata,
+                }
                 for m, score in results
             ],
             indent=2,
@@ -126,9 +133,24 @@ class MemoryToolExecutor:
     def _context(self, topic: str, k: int = 5) -> str:
         qvec = np.asarray(self.embedder.embed([topic])[0], dtype=np.float32)
         results = self.repo.recall(qvec, topic, k=k)
-        facts = [m.content for m, _ in results if m.kind == MemoryKind.SEMANTIC]
-        episodes = [m.content for m, _ in results if m.kind == MemoryKind.EPISODIC]
-        block = "\n".join(f"- {f}" for f in facts)
+        # Label context facts so an answering agent can attribute its evidence.
+        def cited_line(m: Memory) -> str:
+            return f"- [memory:{m.id}] {m.content}"
+
+        facts = [cited_line(m) for m, _ in results if m.kind == MemoryKind.SEMANTIC]
+        episodes = [cited_line(m) for m, _ in results if m.kind == MemoryKind.EPISODIC]
+        block = "\n".join(facts)
         if episodes:
-            block += "\n\nRelated events:\n" + "\n".join(f"- {e}" for e in episodes)
-        return json.dumps({"topic": topic, "context": block or "(no relevant memories)"})
+            block += "\n\nRelated events:\n" + "\n".join(episodes)
+        sources = [
+            {
+                "memory_id": m.id,
+                "title": m.title,
+                "source": m.metadata.get("source"),
+                "metadata": m.metadata,
+            }
+            for m, _ in results
+        ]
+        return json.dumps(
+            {"topic": topic, "context": block or "(no relevant memories)", "sources": sources}
+        )

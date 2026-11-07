@@ -31,7 +31,7 @@ class Embedder:
 class LocalHashEmbedder(Embedder):
     """Deterministic bag-of-chars hashing embedding. Dev/test fallback."""
 
-    def __init__(self, dim: int = 256) -> None:
+    def __init__(self, dim: int = 384) -> None:
         super().__init__()
         self.dim = dim
 
@@ -71,9 +71,12 @@ class OpenAIEmbedder(Embedder):
 
         self.client = OpenAI(api_key=self.settings.openai_api_key)
         self.model = self.settings.embedding_model
+        self.dimensions = self.settings.embedding_dim
 
     def embed(self, texts: list[str]) -> list[np.ndarray]:
-        resp = self.client.embeddings.create(model=self.model, input=texts)
+        resp = self.client.embeddings.create(
+            model=self.model, input=texts, dimensions=self.dimensions
+        )
         return [np.array(d.embedding, dtype=np.float32) for d in resp.data]
 
 

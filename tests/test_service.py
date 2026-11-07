@@ -58,11 +58,19 @@ def test_kind_and_namespace_filtering(tmp_path, monkeypatch):
 
 def test_context_endpoint(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-    client.post("/remember", json={"content": "momentum trading strategy notes"})
+    client.post(
+        "/remember",
+        json={
+            "content": "momentum trading strategy notes",
+            "metadata": {"source": "strategy-notes.md"},
+        },
+    )
     r = client.get("/context", params={"query": "trading strategy", "k": 2})
     assert r.status_code == 200
     body = r.json()
     assert len(body["semantic"]) >= 1
+    assert body["semantic"][0]["source"] == "strategy-notes.md"
+    assert body["semantic"][0]["id"]
 
 
 def test_put_memory_is_keyed_and_idempotent(tmp_path, monkeypatch):

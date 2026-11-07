@@ -41,7 +41,9 @@ class LLMDecomposer(Decomposer):
     def __init__(self) -> None:
         from openai import OpenAI
 
-        self.client = OpenAI()
+        from agent_memory.core.config import get_settings
+
+        self.client = OpenAI(api_key=get_settings().openai_api_key)
 
     def decompose(self, question: str) -> list[str]:
         resp = self.client.chat.completions.create(

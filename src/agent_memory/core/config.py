@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     openai_api_key: str | None = None
     embedding_model: str = "text-embedding-3-small"
-    embedding_dim: int = 1536
+    # Matches the pgvector column and local BGE model. Changing models requires re-embedding.
+    embedding_dim: int = 384
 
 
 @lru_cache
