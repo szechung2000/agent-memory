@@ -45,6 +45,24 @@ Example evidence from the trace (IDs and scores vary):
 This is a **deterministic tool-workflow demo**, not an LLM-generated answer or real loan analysis.
 For an optional LLM tool-calling loop, see [Telegram agent](#optional-llm-agent).
 
+### Try citation-checked answers
+
+```bash
+uv run python -m agent_memory.demo.cited_answer
+```
+
+This second offline example reuses the synthetic CMBS evidence and demonstrates the full
+retrieval → claim drafting → source-quote verification → citation formatting path. Its
+generator is **scripted**, not an LLM; the retrieval and citation validator are real:
+
+```text
+Synthetic CMBS Loan A was 30 days delinquent in September 2026. [S2]
+```
+
+The response also returns a structured `citations` list with the memory ID, the exact
+source quote, file identifier, and ingestion metadata. Reference numbers depend on ranking.
+See [live LLM answers](#optional-live-llm-answers) for the real generation path.
+
 ## Architecture
 
 ```mermaid
@@ -55,9 +73,10 @@ flowchart TD
     E["Agent task / question"] --> F["Memory tools / REST API"]
     F --> G["Hybrid retrieval + temporal ranking"]
     D --> G
-    G --> H["Evidence + source metadata"]
-    H --> I["Agent context / LLM caller"]
-    I --> F
+    G --> H["Ranked evidence + source IDs"]
+    H --> I["LLM drafts claims + quotes"]
+    I --> J["Verify IDs and exact quotes"]
+    J --> K["Cited answer or abstention"]
 ```
 
 | Component | Implementation | Why it matters |
@@ -67,12 +86,15 @@ flowchart TD
 | Retrieval | 70% cosine similarity + 30% keyword overlap; temporal penalty | Search by meaning and exact terms, including date-sensitive questions |
 | Advanced retrieval | Query decomposition, multi-hop expansion, optional local cross-encoder reranker | Experiments for questions that need several facts |
 | Agent interface | OpenAI-format tools: `memory_write`, `memory_search`, `memory_context` | Model-agnostic tool contract |
+| Cited answers | Optional OpenAI generator + strict source ID/quote checks | Return only referenced evidence and fail closed on invalid citations |
 | Storage | SQLite locally; PostgreSQL with pgvector and HNSW candidate search | Quick demo and a scalable-backend experiment |
 | Evaluation | Four golden sets, retrieval hit checks, latency and ablation reports | Test retrieval changes rather than relying on anecdotes |
 
-Source IDs and metadata are returned with memory search/context results. **Citation rendering
-and verification in an LLM's final answer are not implemented**; provenance alone does not
-prove an answer is grounded. The next step is citation-aware generation with source checks.
+**Scope of citation verification:** The checker confirms that each generated claim cites an
+actual retrieved memory and quotes text from it. It constructs the citation markers itself,
+rejects invalid output, and abstains when evidence is absent. It **cannot prove that each
+claim logically follows from the quote**. That needs claim-level entailment evaluation,
+human review, or a separate verifier. Retrieved documents remain untrusted input.
 
 ## Run the REST API
 
@@ -98,6 +120,38 @@ curl -fsS 'http://127.0.0.1:8000/context?query=CMBS%20delinquency&k=3'
 
 Interactive API schema: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 For idempotent updates from an external source, use `PUT /v1/memories/{external_id}`.
+
+### Optional live LLM answers
+
+Start the API with `AM_OPENAI_API_KEY` configured (and a **fresh database** if you are
+switching embedding models). The new `POST /answer` endpoint performs retrieval,
+optional reranking, LLM generation, and citation validation:
+
+```bash
+export AM_OPENAI_API_KEY='your-api-key'
+uv run uvicorn agent_memory.api.main:app --host 127.0.0.1 --port 8000
+```
+
+After inserting the example evidence using `/remember` above:
+
+```bash
+curl -fsS http://127.0.0.1:8000/answer \
+  -H 'content-type: application/json' \
+  -d '{"question":"What delinquency does the CMBS remittance show?","namespace":"demo","k":3}'
+```
+
+The response contains `status`, `answer`, `claims`, and `citations` with exact quotes
+and source metadata. If no evidence is found (or the model abstains), the service returns
+`insufficient_evidence`. Invalid, fabricated, or missing citations cause HTTP **502**;
+the unverified answer is not returned. Without a generation key, this endpoint returns
+HTTP **503**. `AM_GENERATION_MODEL` defaults to `gpt-4o-mini`.
+
+Set `"rerank":true` to request local cross-encoder reranking before generation. It needs
+the `local-embeddings` extra and the reranker model download; otherwise the endpoint
+returns **503** instead of claiming that reranking happened.
+
+This optional path sends both the question and retrieved memory content to OpenAI.
+Do not submit confidential client or employer data.
 
 For real local semantic embeddings (model download required on first run):
 
@@ -182,7 +236,9 @@ embeddings and heuristic decomposition produced:
 | Multi-hop | 6 | 4/6 |
 | Research papers (L0–L3) | 20 | 17/20 |
 
-These are **retrieval-level** checks, not LLM answer accuracy. The scorer accepts a majority
+These are **retrieval-level** checks, not LLM answer accuracy. Citation-specific unit and
+HTTP tests also check valid quotes, invented source IDs, malformed outputs, and abstentions,
+using a fake generator so CI needs no API key. The retrieval scorer accepts a majority
 of required evidence for multi-fact questions; small suites and heuristic splits limit how
 well results generalize. CI tests use lower minimum thresholds for the hash fallback.
 See [ablation results](docs/ablation-report.md) and the
@@ -195,10 +251,12 @@ See [ablation results](docs/ablation-report.md) and the
 - **Why hybrid retrieval?** Exact IDs and terms matter along with semantic similarity.
   The SQLite backend scans rows; PostgreSQL uses pgvector candidates and Python keyword
   scoring. True server-side sparse retrieval/fusion is future work.
-- **How are errors controlled?** Deduplication, source metadata, targeted retrieval tests,
-  and bounded tool-calling rounds. The demo does not prove answer correctness.
+- **How are errors controlled?** Deduplication, source metadata, citation-quote checking,
+  safe abstention, targeted retrieval tests, and bounded tool-calling rounds. These
+  controls still do not prove semantic answer correctness.
 - **What would production require?** Authentication, tenant authorization, rate limits,
-  migrations, observability, retries, corpus-scale evaluations, and citation validation.
+  migrations, observability, retries, corpus-scale evaluations, and claim-level factual
+  verification beyond citation text matching.
   Do **not** expose this prototype's unauthenticated API to the public internet.
 
 The [architecture proposal](docs/memory-architecture.md) and

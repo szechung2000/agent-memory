@@ -1,12 +1,21 @@
-"""FastAPI application: /remember, /recall, /context, /healthz."""
+"""FastAPI application: memory storage, retrieval, and cited RAG answers."""
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, sessionmaker
 
+from agent_memory.core.answer import (
+    AnswerGenerator,
+    AnswerResult,
+    CitationValidationError,
+    OpenAIAnswerGenerator,
+    RerankerUnavailableError,
+    answer_question,
+)
+from agent_memory.core.config import get_settings
 from agent_memory.core.embedding import get_embedder
 from agent_memory.core.models import Memory, MemoryKind
 from agent_memory.db.engine import Base, get_engine, make_session_factory
@@ -81,6 +90,26 @@ class RecallRequest(BaseModel):
     user_id: str | None = None
 
 
+class AnswerRequest(BaseModel):
+    question: str = Field(min_length=1)
+    k: int = Field(default=5, ge=1, le=20)
+    namespace: str = "default"
+    user_id: str = "local"
+    rerank: bool = False
+
+
+def get_answer_generator() -> AnswerGenerator:
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Set AM_OPENAI_API_KEY to enable LLM-generated answers",
+        )
+    return OpenAIAnswerGenerator(
+        api_key=settings.openai_api_key, model=settings.generation_model
+    )
+
+
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
@@ -133,6 +162,32 @@ async def recall(req: RecallRequest, db: Session = Depends(get_db)):
         )
         for m, score in results
     ]
+
+
+@app.post("/answer", response_model=AnswerResult)
+async def answer(
+    req: AnswerRequest,
+    db: Session = Depends(get_db),
+    generator: AnswerGenerator = Depends(get_answer_generator),
+):
+    """Generate only source-referenced claims; reject invalid or missing quotes."""
+    try:
+        return await run_in_threadpool(
+            answer_question,
+            get_repository(db),
+            app.state.embedder,
+            generator,
+            req.question,
+            k=req.k,
+            namespace=req.namespace,
+            user_id=req.user_id,
+            rerank=req.rerank,
+        )
+    except CitationValidationError as exc:
+        # Never send unverified model-generated claims back to the caller.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except RerankerUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/context")

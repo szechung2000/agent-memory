@@ -3,8 +3,10 @@
 > **Design proposal, not a list of shipped features.** The current code has
 > SQLite/Postgres memory storage, ingestion, hybrid retrieval, agent tools,
 > and evaluation suites. Redis working memory, entity-graph traversal,
-> expiration jobs, hosted authentication, and verified answer citations are
-> not implemented. See the [README](../README.md) for the runnable system.
+> expiration jobs, hosted authentication, and semantic claim-entailment checks
+> are not implemented. The citation-aware endpoint checks references and exact
+> quotes, not whether a claim logically follows from them. See the
+> [README](../README.md) for the runnable system.
 
 Personal knowledgebase + agent memory substrate for Simon's projects
 (agentic OS / Telegram bot, trading bot). One storage layer, three consumers:
