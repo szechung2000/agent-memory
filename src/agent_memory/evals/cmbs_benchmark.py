@@ -34,7 +34,7 @@ from agent_memory.core.answer import (
 )
 from agent_memory.core.embedding import LocalHashEmbedder, get_embedder
 from agent_memory.core.models import Memory, MemoryKind
-from agent_memory.evals.run_golden import make_eval_repo
+from agent_memory.db.engine import create_repository_for_url
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "evals" / "cmbs"
 CATEGORIES = {"direct", "multi_document", "temporal", "unanswerable", "conflict"}
@@ -203,7 +203,7 @@ class Benchmark:
         self.documents = {d.id: d for d in documents}
         self.embedder = embedder
         self.candidate_pool = candidate_pool
-        self.repo = make_eval_repo()
+        self.repo = create_repository_for_url("sqlite:///:memory:")
         vectors = embedder.embed([doc.content for doc in documents])
         for doc, vec in zip(documents, vectors, strict=True):
             self.repo.write(

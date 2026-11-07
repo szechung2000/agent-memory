@@ -1,11 +1,10 @@
-"""Memory repository: CRUD + hybrid retrieval (dense + keyword FTS).
+"""SQLite memory repository: CRUD + hybrid retrieval (dense + keyword overlap).
 
 Two backends behind one interface:
-- SqliteBackend: dev/test default, brute-force cosine over stored float32 blobs
-- PostgresBackend: pgvector HNSW + tsvector full-text (activated by AM_DATABASE_URL)
+- SQLite: dev/test default, brute-force cosine over stored float32 blobs
+- PostgreSQL: pgvector HNSW candidate retrieval and Python keyword scoring
 
-v0 note: SQLite path implements keyword scoring in Python; the retrieval
-interface is identical so swapping backends changes nothing upstream.
+Both use the same ranking rule, but candidate selection differs by backend.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from agent_memory.core.models import Memory
-from agent_memory.core.temporal import temporal_penalty
+from agent_memory.core.scoring import hybrid_score
 from agent_memory.db.models import MemoryRow
 
 
@@ -103,6 +102,8 @@ class MemoryRepository:
         user_id: str | None = None,
         filters: dict[str, Any] | None = None,
     ) -> list[tuple[Memory, float]]:
+        if filters:
+            raise ValueError("Metadata filters are not implemented")
         stmt = select(MemoryRow)
         if kind:
             stmt = stmt.where(MemoryRow.kind == kind)
@@ -114,15 +115,11 @@ class MemoryRepository:
         q = query_vec.astype(np.float32)
 
         scored: list[tuple[float, float, MemoryRow]] = []  # (fused, dense, row)
-        ql = set(query_text.lower().split())
         for r in rows:
             v = _unpack(r.embedding, r.dim or 0)
             dnorm = np.linalg.norm(v)
             dense = float(np.dot(q, v) / ((np.linalg.norm(q) * dnorm) or 1e-9))
-            toks = set((r.content or "").lower().split()) | set((r.title or "").lower().split())
-            overlap = len(ql & toks) / max(len(ql), 1)
-            fused = 0.7 * max(dense, 0.0) + 0.3 * overlap
-            fused -= temporal_penalty(query_text, r.content)
+            fused = hybrid_score(query_text, r.content or "", r.title, dense)
             scored.append((fused, dense, r))
 
         scored.sort(key=lambda x: x[0], reverse=True)

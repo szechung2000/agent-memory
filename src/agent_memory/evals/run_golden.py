@@ -334,16 +334,9 @@ def print_trend(limit: int = 10) -> None:
 
 def make_eval_repo(db_url: str = "sqlite:///:memory:"):
     """Fresh isolated store for eval runs."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
+    from agent_memory.db.engine import create_repository_for_url
 
-    from agent_memory.db.engine import Base
-    from agent_memory.db.models import MemoryRow  # noqa: F401  (register tables)
-    from agent_memory.db.repository import MemoryRepository
-
-    engine = create_engine(db_url)
-    Base.metadata.create_all(engine)
-    return MemoryRepository(sessionmaker(bind=engine, expire_on_commit=False)())
+    return create_repository_for_url(db_url)
 
 
 if __name__ == "__main__":

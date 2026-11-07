@@ -8,18 +8,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
 
 from agent_memory.core.chunker import chunk_text
 from agent_memory.core.models import Memory, MemoryKind
-from agent_memory.db.pg_repository import PgVectorRepository
-from agent_memory.db.repository import MemoryRepository
+from agent_memory.db.engine import create_repository_for_url
 
 _FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
@@ -76,16 +75,15 @@ def content_hash(text_content: str) -> str:
     return hashlib.sha256(text_content.encode()).hexdigest()
 
 
-def get_repo_for_url(db_url: str):
-    engine = create_engine(db_url)
-    if db_url.startswith("sqlite"):
-        from agent_memory.db.engine import Base, make_session_factory
+def scoped_content_hash(text_content: str, namespace: str, source: str | None) -> str:
+    """Deduplicate within a source and namespace, not across independent documents."""
+    scope = json.dumps([namespace, source, text_content], ensure_ascii=False)
+    return content_hash(scope)
 
-        Base.metadata.create_all(engine)
-        session = make_session_factory(engine)()
-        return MemoryRepository(session)
-    session = sessionmaker(bind=engine)()
-    return PgVectorRepository(session)
+
+def get_repo_for_url(db_url: str):
+    """Compatibility entry point for existing CLI users."""
+    return create_repository_for_url(db_url)
 
 
 class Ingester:
@@ -108,13 +106,26 @@ class Ingester:
             )
             conn.commit()
 
-    def _seen(self, h: str) -> bool:
+    def _seen(self, h: str, legacy_h: str, namespace: str, source: str | None) -> bool:
         bind = self.repo.session.get_bind()
         with bind.connect() as conn:
             row = conn.execute(
                 text("SELECT memory_id FROM ingest_hashes WHERE content_hash = :h"), {"h": h}
             ).first()
-        return row is not None
+            if row:
+                return True
+            # v1 hashes were global. Reuse them only when the original memory
+            # belongs to the SAME namespace and source; add the new scoped key.
+            old = conn.execute(
+                text("SELECT memory_id FROM ingest_hashes WHERE content_hash = :h"),
+                {"h": legacy_h},
+            ).first()
+        if old:
+            memory = self.repo.get(old[0])
+            if memory and memory.namespace == namespace and memory.metadata.get("source") == source:
+                self._record(h, old[0])
+                return True
+        return False
 
     def _record(self, h: str, mid: str) -> None:
         bind = self.repo.session.get_bind()
@@ -140,14 +151,17 @@ class Ingester:
             return result
 
         pending: list[tuple[str, dict]] = []
+        seen_pending: set[str] = set()
+        source = meta.get("source")
         for ch in chunks:
             ch_meta = {**meta, "chunk_index": ch.index}
             if ch.heading:
                 ch_meta["heading"] = ch.heading
-            h = content_hash(ch.text)
-            if self._seen(h):
+            h = scoped_content_hash(ch.text, namespace, source)
+            if h in seen_pending or self._seen(h, content_hash(ch.text), namespace, source):
                 result.duplicates_skipped += 1
                 continue
+            seen_pending.add(h)
             pending.append((ch.text, {**ch_meta, "_hash": h}))
 
         for i in range(0, len(pending), batch_size):
@@ -162,7 +176,9 @@ class Ingester:
                     title=m.get("heading"),
                     metadata=m,
                 )
-                mid = self.repo.write(mem, np.asarray(v, dtype=np.float32))
+                # Keyed write also prevents duplicate rows if the hash record is
+                # missing after an interrupted ingestion or concurrent retry.
+                mid = self.repo.upsert(h, mem, np.asarray(v, dtype=np.float32))
                 self._record(h, mid)
                 result.chunks_written += 1
         return result

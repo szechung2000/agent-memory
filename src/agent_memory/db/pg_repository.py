@@ -2,8 +2,8 @@
 
 Activated automatically when AM_DATABASE_URL points at Postgres. Uses the same
 MemoryRepository interface as the SQLite backend: write()/get()/recall() with
-identical scoring semantics (hybrid dense+keyword, fused 0.7/0.3, temporal
-penalty) so consumers and evals are backend-agnostic.
+ranking rule (hybrid dense+keyword, fused 0.7/0.3, temporal penalty). The
+candidate pools are not identical: PostgreSQL selects a bounded dense shortlist.
 
 Dense search uses pgvector cosine distance via HNSW index; keyword scoring is
 computed in Python over candidate rows (v1 — tsvector pushdown is a later
@@ -16,12 +16,11 @@ import uuid
 from typing import Any
 
 import numpy as np
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from agent_memory.core.models import Memory, MemoryKind
-from agent_memory.core.temporal import temporal_penalty
-from agent_memory.db.repository import _to_model
+from agent_memory.core.scoring import hybrid_score
 
 
 class PgVectorRepository:
@@ -189,6 +188,8 @@ class PgVectorRepository:
         user_id: str | None = None,
         filters: dict[str, Any] | None = None,
     ) -> list[tuple[Memory, float]]:
+        if filters:
+            raise ValueError("Metadata filters are not implemented")
         # fetch candidates via dense HNSW ordering (over-fetch for hybrid rerank)
         fetch = max(k * 5, 50)
         q = "[" + ",".join(f"{x:.7g}" for x in query_vec.astype(np.float32)) + "]"
@@ -208,15 +209,10 @@ class PgVectorRepository:
             {"q": q, "kind": kind, "namespace": namespace, "user_id": user_id, "fetch": fetch},
         ).mappings().all()
 
-        ql = set(query_text.lower().split())
         scored = []
         for r in rows:
             dense = 1.0 - float(r["dist"])  # cosine distance -> similarity
-            toks = set((r["content"] or "").lower().split())
-            toks |= set((r["title"] or "").lower().split())
-            overlap = len(ql & toks) / max(len(ql), 1)
-            fused = 0.7 * max(dense, 0.0) + 0.3 * overlap
-            fused -= temporal_penalty(query_text, r["content"])
+            fused = hybrid_score(query_text, r["content"] or "", r["title"], dense)
             scored.append((fused, r))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -245,14 +241,9 @@ def _row_to_model(r: Any) -> Memory:
 
 def get_repository(session: Session):
     """Factory: pgvector backend on Postgres URLs, SQLite backend otherwise."""
-    url = session.get_bind().url.render_as_string(hide_password=False)
-    if url.startswith("postgresql"):
+    if session.get_bind().dialect.name == "postgresql":
         # Startup/CLI create the schema; do not run DDL and COMMIT per API request.
         return PgVectorRepository(session, initialize_schema=False)
     from agent_memory.db.repository import MemoryRepository
 
     return MemoryRepository(session)
-
-
-# re-export for API layer compatibility
-_ = _to_model, select
