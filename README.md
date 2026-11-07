@@ -81,6 +81,22 @@ live LLM. No model download, API key, or database server is required.
 The browser demo uses an isolated in-memory SQLite corpus. It does not ingest
 private documents, make paid model calls, or measure production answer quality.
 
+To compare **actual model-generated answers**, run the explicit, paid benchmark
+in a separate terminal, then use the **Model evaluation** tab to open its JSON
+report locally (the browser does not upload it):
+
+```bash
+# Configure AM_OPENAI_API_KEY before running; 2 generation calls per question.
+uv run python -m agent_memory.evals.cmbs_benchmark \
+  --live --live-mode both --output paired.json
+```
+
+This runs 45 synthetic cases per variant (**90 paid generation requests**). Use
+`--max-live-cases 3` for a small, clearly marked *partial* smoke run. The report
+compares key-fact coverage, labeled citation support, abstention, latency and
+token use. It does not prove that generated claims logically follow the quotes.
+See [benchmark methodology](docs/cmbs-benchmark.md) for scoring limitations.
+
 ## Architecture
 
 ```mermaid

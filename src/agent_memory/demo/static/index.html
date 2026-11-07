@@ -84,6 +84,12 @@
     .method-list { display: grid; gap: 14px; max-width: 850px; }
     .method-list article { background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 19px; }
     .method-list article p { margin-top: 7px; }
+    .report-input { display: block; width: 100%; padding: 12px; background: var(--raised); border: 1px solid var(--line); border-radius: 10px; color: var(--text); }
+    .report-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .report-table th, .report-table td { border-bottom: 1px solid var(--line); padding: 12px 8px; text-align: left; }
+    .report-table th { color: var(--muted); font-size: .82rem; }
+    .report-scroll { overflow-x: auto; }
+    .report-note { margin-top: 16px; }
     .error { color: #ffb9a9; padding: 12px; border: 1px solid #8d524e; border-radius: 9px; }
     footer { border-top: 1px solid var(--line); padding: 24px 0 45px; font-size: .84rem; color: var(--muted); }
     @media (max-width: 850px) {
@@ -121,6 +127,7 @@
     <nav class="tabs" role="tablist" aria-label="Demo views">
       <button class="active" role="tab" aria-selected="true" data-panel="explorer">Evidence explorer</button>
       <button role="tab" aria-selected="false" data-panel="citations">Citations and abstention</button>
+      <button role="tab" aria-selected="false" data-panel="live">Model evaluation</button>
       <button role="tab" aria-selected="false" data-panel="method">How it works</button>
     </nav>
     <section id="explorer" class="panel active" role="tabpanel">
@@ -150,6 +157,15 @@
       </div>
       <div id="citation-result" class="citation-card"><p>Choose a scenario to inspect the answer, retrieved evidence, and verified source quote.</p></div>
     </section>
+    <section id="live" class="panel" role="tabpanel">
+      <h2>Inspect real-model RAG quality</h2>
+      <p>Run the optional paired OpenAI evaluation from the terminal, then open its JSON report here. This page reads the file inside your browser. It never uploads it or calls a model.</p>
+      <div class="control-card" style="margin-top:20px;grid-template-columns:1fr">
+        <div><label for="live-report">Select a paired live-evaluation JSON report</label><input class="report-input" id="live-report" type="file" accept=".json,application/json"></div>
+        <div class="caption">Command: <code>uv run python -m agent_memory.evals.cmbs_benchmark --live --live-mode both --output paired.json</code></div>
+      </div>
+      <div id="live-results" class="detail-panel" role="status"><p>No live-model report loaded. The offline metrics above measure retrieval only.</p></div>
+    </section>
     <section id="method" class="panel" role="tabpanel">
       <h2>Design choices and boundaries</h2>
       <div class="method-list">
@@ -157,6 +173,7 @@
         <article><h3>02 · Fair A/B comparison</h3><p>Both variants start from the same 20 retrieved candidates. BM25 changes their order; labels are used only after retrieval to score recall@5, recall@10, and support coverage.</p></article>
         <article><h3>03 · Citation safety</h3><p>The cited-answer example uses a scripted generator and the production quote verifier. A source ID must exist in retrieval, and the quote must occur in that source. Quote matching does not prove logical entailment.</p></article>
         <article><h3>04 · Honest limitations</h3><p>Hash embeddings are a deterministic local fallback, not strong semantic embeddings. The browser demo makes no live LLM calls and is not a production accuracy or security claim.</p></article>
+        <article><h3>05 · Optional live evaluation</h3><p>The CLI uses the existing OpenAI generator and strict citation verifier twice per question with identical candidate pools. The Model evaluation tab imports its local report for comparison. Key-fact coverage is a lexical proxy, and quote matching does not prove claim entailment.</p></article>
       </div>
     </section>
   </main>
@@ -180,6 +197,85 @@
     function showError(target, message) {
       target.replaceChildren(make("div", "error", `Could not load results: ${message}`));
     }
+    function reportTable(headers, rows) {
+      const table = make("table", "report-table");
+      const head = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      for (const label of headers) headerRow.append(make("th", "", label));
+      head.append(headerRow);
+      const body = document.createElement("tbody");
+      for (const values of rows) {
+        const row = document.createElement("tr");
+        for (const value of values) row.append(make("td", "", value));
+        body.append(row);
+      }
+      table.append(head, body);
+      const scroll = make("div", "report-scroll");
+      scroll.append(table);
+      return scroll;
+    }
+    function renderLiveReport(report) {
+      if (report.answer_evaluation_type !== "live_model_paired" || report.live_mode !== "both") {
+        throw new Error("Choose a paired live-model report (run with --live --live-mode both).");
+      }
+      const results = report.answer_evaluation;
+      if (!results?.baseline || !results?.reranked || !results?.delta_reranked_minus_baseline) {
+        throw new Error("The report is missing paired evaluation metrics.");
+      }
+      const target = el("live-results");
+      const heading = make("h3", "", `${report.generation_model || "Model not specified"} · ${results.paired_questions} paired questions`);
+      const note = make("p", "report-note", results.complete ?
+        "Full synthetic benchmark. Scores still do not establish production accuracy." :
+        "Partial smoke run: do not interpret these numbers as full-benchmark quality.");
+      const labels = [
+        ["Key-fact coverage (lexical proxy)", "key_fact_coverage_proxy"],
+        ["Gold citation precision", "gold_citation_precision"],
+        ["Gold citation recall", "gold_citation_recall"],
+        ["Exact-quote anchor rate", "citation_quote_anchor_rate"],
+        ["Abstention precision", "abstention_precision"],
+        ["Abstention recall", "abstention_recall"],
+      ];
+      const rows = labels.map(([label, key]) => [
+        label, percent(results.baseline[key]), percent(results.reranked[key]),
+        results.delta_reranked_minus_baseline[key] == null ? "—" :
+          `${results.delta_reranked_minus_baseline[key] >= 0 ? "+" : ""}${(results.delta_reranked_minus_baseline[key] * 100).toFixed(1)} pp`,
+      ]);
+      const timing = results.latency_ms;
+      if (timing?.baseline && timing?.reranked) {
+        rows.push(["Pipeline latency p95", `${number(timing.baseline.pipeline_latency_ms_p95)} ms`,
+          `${number(timing.reranked.pipeline_latency_ms_p95)} ms`, "—"]);
+      }
+      const tokens = results.token_usage;
+      if (tokens?.baseline && tokens?.reranked) {
+        rows.push(["Reported model tokens", tokens.baseline.total_tokens ?? "—",
+          tokens.reranked.total_tokens ?? "—", "—"]);
+      }
+      target.replaceChildren(heading, note, reportTable(["Metric", "Baseline", "Reranked", "Change"], rows));
+      const baselineCases = results.baseline.cases || [];
+      const rerankedCases = new Map((results.reranked.cases || []).map(item => [item.case_id, item]));
+      const changed = baselineCases.filter(item => {
+        const other = rerankedCases.get(item.case_id);
+        return other && (item.status !== other.status ||
+          item.key_fact_coverage !== other.key_fact_coverage ||
+          item.gold_citation_recall !== other.gold_citation_recall);
+      }).slice(0, 10);
+      if (changed.length) {
+        target.append(make("h3", "", "Cases with changed outcomes (first 10)"));
+        target.append(reportTable(["Case", "Baseline status", "Reranked status", "Key facts B / R"],
+          changed.map(item => {
+            const other = rerankedCases.get(item.case_id);
+            return [item.case_id, item.status, other.status,
+              `${percent(item.key_fact_coverage)} / ${percent(other.key_fact_coverage)}`];
+          })));
+      }
+      target.append(make("p", "report-note", "Gold support checks and literal key facts are diagnostic proxies, not semantic entailment or human-verified correctness."));
+    }
+    el("live-report").addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try { renderLiveReport(JSON.parse(await file.text())); }
+      catch (error) { showError(el("live-results"), error.message); }
+    });
     document.querySelectorAll(".tabs button").forEach(button => {
       button.addEventListener("click", () => {
         document.querySelectorAll(".tabs button").forEach(item => {

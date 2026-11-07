@@ -13,6 +13,9 @@ def test_dashboard_html_is_self_contained_and_clear_about_limits():
     assert "Evidence first." in response.text
     assert "scripted generator" in response.text.lower()
     assert "Labeled synthetic CMBS" in response.text or "labeled synthetic CMBS" in response.text
+    assert 'id="live-report" type="file"' in response.text
+    assert 'data-panel="live"' in response.text
+    assert "never uploads it or calls a model" in response.text
 
 
 def test_dashboard_reuses_original_labeled_dataset():
