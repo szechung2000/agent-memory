@@ -21,6 +21,8 @@ class ScriptedCMBSGenerator:
     """Return one fixed claim citing the retrieved synthetic remittance."""
 
     def generate(self, question: str, evidence: list[Evidence]) -> str:
+        if "delinquen" not in question.lower() or "september" not in question.lower():
+            return json.dumps({"insufficient_evidence": True, "claims": []})
         matching = next((e for e in evidence if "30-day delinquency" in e.content), None)
         if matching is None:
             return json.dumps({"insufficient_evidence": True, "claims": []})
@@ -39,20 +41,24 @@ class ScriptedCMBSGenerator:
         )
 
 
-def run_demo() -> dict:
+def run_demo(question: str = "Which CMBS loan was delinquent in September 2026?") -> dict:
     with TemporaryDirectory() as workdir:
         repo = get_repo_for_url(f"sqlite:///{workdir}/demo.db")
         embedder = LocalHashEmbedder()
         ingester = Ingester(repo, embedder)
+        written = 0
         for source, content in SAMPLE_DOCS:
-            ingester.ingest_text(
+            ingested = ingester.ingest_text(
                 content, metadata={"source": source}, namespace="cmbs-demo"
             )
+            written += ingested.chunks_written
+        query_vector = embedder.embed([question])[0]
+        retrieved = repo.recall(query_vector, question, k=3, namespace="cmbs-demo")
         result = answer_question(
             repo,
             embedder,
             ScriptedCMBSGenerator(),
-            "Which CMBS loan was delinquent in September 2026?",
+            question,
             k=3,
             namespace="cmbs-demo",
         )
@@ -60,6 +66,17 @@ def run_demo() -> dict:
         return {
             "mode": "scripted_generator_not_live_llm",
             "verification": "retrieved source IDs and exact text quotes",
+            "query": question,
+            "ingest": {"synthetic_sources": len(SAMPLE_DOCS), "chunks_written": written},
+            "retrieved_evidence": [
+                {
+                    "id": memory.id,
+                    "content": memory.content,
+                    "source": memory.metadata.get("source"),
+                    "score": round(float(score), 4),
+                }
+                for memory, score in retrieved
+            ],
             **result.model_dump(),
         }
 
