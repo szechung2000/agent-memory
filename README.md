@@ -90,6 +90,29 @@ flowchart TD
 | Storage | SQLite locally; PostgreSQL with pgvector and HNSW candidate search | Quick demo and a scalable-backend experiment |
 | Evaluation | Four golden sets, retrieval hit checks, latency and ablation reports | Test retrieval changes rather than relying on anecdotes |
 
+### Implemented path versus experiments
+
+The main demonstration follows **ingest → retrieve → optional rerank → generate →
+verify citations**. HTTP and agent tools share the same retrieval rule and context
+evidence assembly; SQLite and pgvector use different candidate selection but the
+same hybrid score calculation.
+
+- **Core:** document ingestion, memory storage and recall, source-grounded answers,
+  synthetic CMBS evaluation, Docker integration tests, and request telemetry.
+- **Optional experiments:** multi-hop query expansion, LLM query decomposition,
+  episode consolidation, and the Telegram agent. These are not prerequisites for
+  the cited-answer API and are not required to run the offline FDE demo.
+- **Not implemented:** an entity/edge knowledge graph, tenant authorization,
+  production database migrations, and external monitoring infrastructure. Some
+  architecture documents describe proposals rather than shipped features.
+
+Ingestion treats identical text from **different namespaces or source files** as
+different memories. Re-importing the same source in the same namespace is skipped;
+older global hash records are recognized when their stored source and namespace
+match. Without source metadata, identical text within a namespace is treated as
+the same source. The database schema has one runtime bootstrap path; the existing
+Alembic scaffold is **not yet a production migration system**.
+
 **Scope of citation verification:** The checker confirms that each generated claim cites an
 actual retrieved memory and quotes text from it. It constructs the citation markers itself,
 rejects invalid output, and abstains when evidence is absent. It **cannot prove that each
