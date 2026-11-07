@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from agent_memory.core.context import context_items
 from agent_memory.core.models import Memory, MemoryKind
 from agent_memory.core.temporal import temporal_penalty  # noqa: F401 (re-export convenience)
 
@@ -131,25 +132,24 @@ class MemoryToolExecutor:
         )
 
     def _context(self, topic: str, k: int = 5) -> str:
-        qvec = np.asarray(self.embedder.embed([topic])[0], dtype=np.float32)
-        results = self.repo.recall(qvec, topic, k=k)
+        results = context_items(self.repo, self.embedder, topic, k)
         # Label context facts so an answering agent can attribute its evidence.
-        def cited_line(m: Memory) -> str:
-            return f"- [memory:{m.id}] {m.content}"
+        def cited_line(item: dict) -> str:
+            return f"- [memory:{item['id']}] {item['content']}"
 
-        facts = [cited_line(m) for m, _ in results if m.kind == MemoryKind.SEMANTIC]
-        episodes = [cited_line(m) for m, _ in results if m.kind == MemoryKind.EPISODIC]
+        facts = [cited_line(item) for item in results if item["kind"] == "semantic"]
+        episodes = [cited_line(item) for item in results if item["kind"] == "episodic"]
         block = "\n".join(facts)
         if episodes:
             block += "\n\nRelated events:\n" + "\n".join(episodes)
         sources = [
             {
-                "memory_id": m.id,
-                "title": m.title,
-                "source": m.metadata.get("source"),
-                "metadata": m.metadata,
+                "memory_id": item["id"],
+                "title": item["title"],
+                "source": item["source"],
+                "metadata": item["metadata"],
             }
-            for m, _ in results
+            for item in results
         ]
         return json.dumps(
             {"topic": topic, "context": block or "(no relevant memories)", "sources": sources}
