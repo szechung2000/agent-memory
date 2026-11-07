@@ -10,6 +10,7 @@ from agent_memory.core.embedding import LocalHashEmbedder
 from agent_memory.evals.cmbs_benchmark import (
     Benchmark,
     bm25_rerank,
+    compare_live_variants,
     load_dataset,
     main,
     score_predictions,
@@ -300,3 +301,110 @@ def test_generation_to_citation_scoring_path_uses_only_retrieved_evidence(data):
     assert predictions[0]["status"] == "answered"
     result = score_predictions(questions, docs, predictions, require_complete=False)
     assert result["citation_quote_anchor_rate"] == 1
+
+
+class MeteredGenerator:
+    """Offline stand-in for an API call; tests never invoke a paid provider."""
+
+    def __init__(self):
+        self.calls = []
+        self.last_usage = {}
+
+    def generate(self, question, evidence):
+        self.calls.append((question, [item.metadata["doc_id"] for item in evidence]))
+        self.last_usage = {
+            "prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42,
+        }
+        if "insurance premium" in question.lower() or "appraised value" in question.lower():
+            return json.dumps({"insufficient_evidence": True, "claims": []})
+        return json.dumps({
+            "insufficient_evidence": False,
+            "claims": [{
+                "text": "Evidence was returned.",
+                "citations": [{"source_id": evidence[0].ref, "quote": evidence[0].content}],
+            }],
+        })
+
+
+def test_live_pair_uses_one_retrieval_per_question_and_scores_both(data, monkeypatch):
+    docs, questions = data
+    selected = [questions[0], next(q for q in questions if q.id == "unknown-01")]
+    benchmark = Benchmark(docs, LocalHashEmbedder())
+    generator = MeteredGenerator()
+    calls = []
+    original = benchmark.rankings
+
+    def tracked(*args):
+        calls.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(benchmark, "rankings", tracked)
+    try:
+        predictions = benchmark.generate_paired_predictions(selected, generator, "bm25")
+    finally:
+        benchmark.close()
+    assert len(calls) == 2  # Same retrieval and candidate pool, two generation calls.
+    assert len(generator.calls) == 4
+    assert generator.calls[0][0] == generator.calls[1][0] == questions[0].question
+    assert all("expected_answer" not in label for _, labels in generator.calls for label in labels)
+    assert all(p["generation_latency_ms"] >= 0 for rows in predictions.values() for p in rows)
+    report = compare_live_variants(questions, docs, predictions)
+    assert report["paired_questions"] == 2
+    assert report["complete"] is False
+    assert report["baseline"]["evaluated"] == report["reranked"]["evaluated"] == 2
+    assert report["baseline"]["citation_quote_anchor_rate"] == 1
+    assert report["baseline"]["abstention_recall"] == 1
+    assert report["token_usage"]["baseline"]["total_tokens"] == 84
+    assert report["token_usage"]["reranked"]["reported_calls"] == 2
+    assert "generation_latency_ms_p95" in report["latency_ms"]["baseline"]
+
+
+def test_paired_comparison_rejects_different_case_sets(data):
+    docs, questions = data
+    with pytest.raises(ValueError, match="same question IDs"):
+        compare_live_variants(questions, docs, {
+            "baseline": [{"case_id": "direct-01"}],
+            "reranked": [{"case_id": "direct-02"}],
+        })
+
+
+def test_live_cli_paired_partial_smoke_run_is_explicit(data, tmp_path, monkeypatch):
+    from agent_memory.core.config import get_settings
+
+    monkeypatch.setenv("AM_OPENAI_API_KEY", "test-only-mocked")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "agent_memory.evals.cmbs_benchmark.OpenAIAnswerGenerator",
+        lambda **kwargs: MeteredGenerator(),
+    )
+    output = tmp_path / "paired.json"
+    try:
+        assert main([
+            "--live", "--live-mode", "both", "--max-live-cases", "2",
+            "--output", str(output),
+        ]) == 0
+    finally:
+        get_settings.cache_clear()
+    report = json.loads(output.read_text())
+    assert report["answer_evaluation_type"] == "live_model_paired"
+    assert report["generation_requests"] == 4
+    assert report["live_questions_evaluated"] == 2
+    assert report["answer_evaluation"]["complete"] is False
+    assert set(report["predictions"]) == {"baseline", "reranked"}
+    assert len(report["predictions"]["baseline"]) == 2
+
+
+def test_live_case_cap_requires_opt_in_and_valid_range(monkeypatch):
+    with pytest.raises(SystemExit):
+        main(["--max-live-cases", "3"])
+    from agent_memory.core.config import get_settings
+
+    monkeypatch.setenv("AM_OPENAI_API_KEY", "test-only-mocked")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(SystemExit):
+            main(["--live", "--max-live-cases", "0"])
+        with pytest.raises(SystemExit):
+            main(["--live", "--max-live-cases", "46"])
+    finally:
+        get_settings.cache_clear()

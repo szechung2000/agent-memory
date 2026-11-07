@@ -129,16 +129,33 @@ For an **explicit opt-in paid model run**, configure `AM_OPENAI_API_KEY` and run
 
 ```bash
 uv run python -m agent_memory.evals.cmbs_benchmark \
-  --live --live-mode baseline --embedder auto \
-  --output evals/cmbs/runs/live-baseline.json
+  --live --live-mode both \
+  --output evals/cmbs/runs/live-paired.json
 ```
 
-Run again with `--live-mode reranked` for generation from the BM25-reordered
-evidence. Each run generates up to 45 OpenAI requests, plus embedding requests
-when `--embedder auto` selects OpenAI. The CLI never calls the model by default.
-Provider outages raise errors instead of silently becoming quality scores.
-The live report includes its predictions and model name. Never use confidential
-client or employer material in this public benchmark.
+`both` uses **the same retrieval candidates** for each question and generates
+two separately cited answers: baseline order and BM25-reranked order. A full
+paired run makes **90 paid generation requests** (45 per variant). The output
+includes each variant's predictions, held-out answer/citation/abstention scores,
+per-metric deltas, generation and pipeline latency p50/p95, and API token totals.
+Generation order alternates across questions to reduce systematic call-order
+bias; provider latency and model output can still vary from run to run.
+Open the JSON in the CMBS RAG Lab's **Model evaluation** tab to inspect the comparison
+without making further model calls or uploading your report.
+
+For a low-cost **smoke test**, append `--max-live-cases 3`. It evaluates the first
+three fixed questions per variant (six generation requests) and marks the report
+**incomplete**. This prefix is not representative of all five question categories;
+do not report its scores as benchmark-wide results. `--live-mode baseline` and
+`--live-mode reranked` remain available for single-variant runs.
+
+The default `--embedder hash` is deterministic and makes no embedding API calls.
+`--embedder auto` may add paid embedding requests if your OpenAI key is configured,
+and changes the retrieval experiment. The CLI never calls the model by default.
+Provider outages stop the run instead of becoming misleading quality scores.
+Scores are lexical/key-document proxies: exact quote matching does **not** prove
+that claims are correct or entailed by the source. Never use confidential client
+or employer material in this public benchmark.
 
 ## Other retrieval options
 

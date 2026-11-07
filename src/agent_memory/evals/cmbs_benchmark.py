@@ -312,42 +312,139 @@ class Benchmark:
             raise ValueError("Prediction mode must be baseline or reranked")
         predictions = []
         for q in questions:
-            baseline, reranked, _, _ = self.rankings(q.question, reranker)
+            baseline, reranked, retrieval_ms, rerank_ms = self.rankings(q.question, reranker)
             selected = baseline if mode == "baseline" else reranked
-            evidence = [
-                Evidence(
-                    ref=f"S{i}",
-                    memory_id=m.id,
-                    content=m.content,
-                    score=float(score),
-                    title=m.title,
-                    source=m.metadata.get("source"),
-                    metadata=m.metadata,
+            predictions.append(
+                self._predict_one(
+                    q, selected, generator, mode == "reranked", retrieval_ms, rerank_ms
                 )
-                for i, (m, score) in enumerate(selected[:5], start=1)
-            ]
-            try:
-                raw = generator.generate(q.question, evidence)
-                verified = verify_draft(raw, evidence, reranked=(mode == "reranked"))
-                prediction = {
-                    "case_id": q.id,
-                    "status": verified.status,
-                    "answer": verified.answer,
-                    "citations": [
-                        {"doc_id": cite.metadata["doc_id"], "quote": cite.quote}
-                        for cite in verified.citations
-                    ],
-                }
-            except CitationValidationError as exc:
-                prediction = {
-                    "case_id": q.id,
-                    "status": "validation_failed",
-                    "answer": "",
-                    "citations": [],
-                    "validation_error": str(exc),
-                }
-            predictions.append(prediction)
+            )
         return predictions
+
+    def generate_paired_predictions(
+        self, questions: list[Question], generator, reranker: str
+    ) -> dict[str, list[dict]]:
+        """Use identical retrieved candidates for both model-generation variants."""
+        predictions: dict[str, list[dict]] = {"baseline": [], "reranked": []}
+        for index, q in enumerate(questions):
+            baseline, reranked, retrieval_ms, rerank_ms = self.rankings(q.question, reranker)
+            variants = (("baseline", baseline), ("reranked", reranked))
+            # Balance call-order effects without changing the candidates or report order.
+            if index % 2:
+                variants = tuple(reversed(variants))
+            for mode, selected in variants:
+                predictions[mode].append(
+                    self._predict_one(
+                        q, selected, generator, mode == "reranked", retrieval_ms, rerank_ms
+                    )
+                )
+        return predictions
+
+    @staticmethod
+    def _predict_one(
+        question: Question,
+        ranked: list,
+        generator,
+        reranked: bool,
+        retrieval_ms: float,
+        rerank_ms: float,
+    ) -> dict:
+        evidence = [
+            Evidence(
+                ref=f"S{i}",
+                memory_id=m.id,
+                content=m.content,
+                score=float(score),
+                title=m.title,
+                source=m.metadata.get("source"),
+                metadata=m.metadata,
+            )
+            for i, (m, score) in enumerate(ranked[:5], start=1)
+        ]
+        started = time.perf_counter()
+        try:
+            raw = generator.generate(question.question, evidence)
+            verified = verify_draft(raw, evidence, reranked=reranked)
+            prediction = {
+                "case_id": question.id,
+                "status": verified.status,
+                "answer": verified.answer,
+                "citations": [
+                    {"doc_id": cite.metadata["doc_id"], "quote": cite.quote}
+                    for cite in verified.citations
+                ],
+            }
+        except CitationValidationError as exc:
+            prediction = {
+                "case_id": question.id,
+                "status": "validation_failed",
+                "answer": "",
+                "citations": [],
+                "validation_error": str(exc),
+            }
+        generation_ms = (time.perf_counter() - started) * 1000
+        prediction["generation_latency_ms"] = round(generation_ms, 2)
+        prediction["pipeline_latency_ms"] = round(
+            retrieval_ms + (rerank_ms if reranked else 0) + generation_ms, 2
+        )
+        usage = getattr(generator, "last_usage", None)
+        if usage:
+            prediction["model_usage"] = dict(usage)
+        return prediction
+
+
+def compare_live_variants(
+    questions: list[Question], documents: list[CorpusDoc], predictions: dict[str, list[dict]]
+) -> dict[str, Any]:
+    """Score paired predictions without using labels during model generation."""
+    if set(predictions) != {"baseline", "reranked"}:
+        raise ValueError("A paired comparison requires baseline and reranked predictions")
+    ids = [set(p["case_id"] for p in predictions[mode]) for mode in ("baseline", "reranked")]
+    if ids[0] != ids[1]:
+        raise ValueError("Both variants must evaluate the same question IDs")
+
+    scored = {
+        mode: score_predictions(questions, documents, predictions[mode], require_complete=False)
+        for mode in ("baseline", "reranked")
+    }
+    keys = (
+        "citation_quote_anchor_rate", "gold_citation_precision", "gold_citation_recall",
+        "key_fact_coverage_proxy", "abstention_precision", "abstention_recall",
+        "false_abstentions", "validation_failures",
+    )
+    deltas = {
+        key: (
+            round(scored["reranked"][key] - scored["baseline"][key], 4)
+            if scored["reranked"][key] is not None and scored["baseline"][key] is not None
+            else None
+        )
+        for key in keys
+    }
+    latency = {}
+    tokens = {}
+    for mode in ("baseline", "reranked"):
+        latency[mode] = {
+            f"{field}_{suffix}": _pct_latency([p[field] for p in predictions[mode]], pct)
+            for field in ("generation_latency_ms", "pipeline_latency_ms")
+            for pct, suffix in ((0.5, "p50"), (0.95, "p95"))
+        }
+        recorded = [p["model_usage"] for p in predictions[mode] if p.get("model_usage")]
+        tokens[mode] = {
+            field: sum(
+                usage.get(field) or 0 for usage in recorded
+            ) if recorded else None
+            for field in ("prompt_tokens", "completion_tokens", "total_tokens")
+        }
+        tokens[mode]["reported_calls"] = len(recorded)
+    return {
+        "baseline": scored["baseline"],
+        "reranked": scored["reranked"],
+        "delta_reranked_minus_baseline": deltas,
+        "latency_ms": latency,
+        "token_usage": tokens,
+        "paired_questions": len(ids[0]),
+        "complete": len(ids[0]) == len(questions),
+    }
 
 
 def score_predictions(
@@ -469,18 +566,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--live", action="store_true", help="Explicitly call paid OpenAI generation"
     )
-    parser.add_argument("--live-mode", choices=["baseline", "reranked"], default="baseline")
+    parser.add_argument(
+        "--live-mode", choices=["baseline", "reranked", "both"], default="baseline",
+        help="Use both to compare paired answers from the same candidate pool (2 calls/case)",
+    )
+    parser.add_argument(
+        "--max-live-cases", type=int,
+        help="Optional fixed-prefix smoke run; partial results are NOT full-benchmark scores",
+    )
     parser.add_argument("--output", type=Path, help="Optional local JSON report path")
     args = parser.parse_args(argv)
 
     if args.predictions and args.live:
         parser.error("Use either --predictions or --live, not both")
+    if args.max_live_cases is not None and not args.live:
+        parser.error("--max-live-cases requires --live")
     if args.live:
         from agent_memory.core.config import get_settings
 
         if not get_settings().openai_api_key:
             parser.error("--live requires AM_OPENAI_API_KEY")
     docs, questions = load_dataset()
+    if args.max_live_cases is not None and not 1 <= args.max_live_cases <= len(questions):
+        parser.error(f"--max-live-cases must be between 1 and {len(questions)}")
     embedder = LocalHashEmbedder() if args.embedder == "hash" else get_embedder()
     benchmark = Benchmark(docs, embedder, candidate_pool=args.candidate_pool)
     try:
@@ -507,13 +615,31 @@ def main(argv: list[str] | None = None) -> int:
             generator = OpenAIAnswerGenerator(
                 api_key=settings.openai_api_key, model=settings.generation_model
             )
-            predictions = benchmark.generate_predictions(
-                questions, generator, args.reranker, args.live_mode
+            selected = questions[:args.max_live_cases] if args.max_live_cases else questions
+            requests = len(selected) * (2 if args.live_mode == "both" else 1)
+            print(
+                f"Live evaluation: {requests} paid generation requests, "
+                f"{len(selected)}/{len(questions)} synthetic questions",
+                file=sys.stderr,
             )
-            report["answer_evaluation"] = score_predictions(questions, docs, predictions)
-            report["answer_evaluation_type"] = "live_model"
+            if args.live_mode == "both":
+                predictions = benchmark.generate_paired_predictions(
+                    selected, generator, args.reranker
+                )
+                report["answer_evaluation"] = compare_live_variants(questions, docs, predictions)
+                report["answer_evaluation_type"] = "live_model_paired"
+            else:
+                predictions = benchmark.generate_predictions(
+                    selected, generator, args.reranker, args.live_mode
+                )
+                report["answer_evaluation"] = score_predictions(
+                    questions, docs, predictions, require_complete=False
+                )
+                report["answer_evaluation_type"] = "live_model"
             report["generation_model"] = settings.generation_model
             report["live_mode"] = args.live_mode
+            report["live_questions_evaluated"] = len(selected)
+            report["generation_requests"] = requests
             report["predictions"] = predictions
     finally:
         benchmark.close()
