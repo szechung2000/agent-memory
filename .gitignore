@@ -3,3 +3,4 @@
 __pycache__/
 .venv/
 evals/history.jsonl
+evals/cmbs/runs/

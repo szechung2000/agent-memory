@@ -19,3 +19,5 @@ jobs:
         run: uv run ruff check .
       - name: Tests
         run: uv run pytest -q
+      - name: Synthetic CMBS benchmark smoke
+        run: uv run python -m agent_memory.evals.cmbs_benchmark --output /tmp/cmbs-rag-benchmark.json
