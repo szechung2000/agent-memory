@@ -220,6 +220,24 @@ external accounts and was not exercised by the local smoke tests.
 
 ## Evaluation: what is actually measured
 
+**New: synthetic CMBS RAG quality benchmark.** Run a repeatable baseline vs
+BM25-reranked comparison on 32 synthetic source documents and 45 labeled
+questions (direct, multi-document, temporal, unanswerable, and restated data):
+
+```bash
+uv run python -m agent_memory.evals.cmbs_benchmark --output evals/cmbs/runs/offline.json
+```
+
+The offline hash-embedding run measures retrieval only. The separate answer
+scorer computes quote anchoring, labeled citation precision/recall, abstention
+precision/recall, and strict key-fact coverage from a **complete 45-case
+prediction file** or an explicitly opted-in live model run. It never treats
+scripted fixture predictions as live LLM quality. See the
+[benchmark methodology and measured results](docs/cmbs-benchmark.md) for
+reproduction, actual A/B scores, regressions, and limitations.
+
+The original four golden suites remain available:
+
 ```bash
 uv run python -m agent_memory.evals.run_golden
 uv run pytest -q
