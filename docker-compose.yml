@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: memory
       POSTGRES_DB: agent_memory
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,19 +15,13 @@ services:
       timeout: 3s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
   api:
     build: .
     environment:
       AM_DATABASE_URL: postgresql+psycopg://memory:memory@db:5432/agent_memory
-      AM_REDIS_URL: redis://redis:6379/0
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AM_OPENAI_API_KEY: ${AM_OPENAI_API_KEY:-}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy

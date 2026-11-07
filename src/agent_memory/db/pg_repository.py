@@ -27,8 +27,10 @@ from agent_memory.db.repository import _to_model
 class PgVectorRepository:
     """Drop-in replacement for MemoryRepository when on Postgres."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, initialize_schema: bool = True) -> None:
         self.session = session
+        if not initialize_schema:
+            return
         session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         # table is created by Alembic migrations or create_all fallback
         session.execute(
@@ -245,7 +247,8 @@ def get_repository(session: Session):
     """Factory: pgvector backend on Postgres URLs, SQLite backend otherwise."""
     url = session.get_bind().url.render_as_string(hide_password=False)
     if url.startswith("postgresql"):
-        return PgVectorRepository(session)
+        # Startup/CLI create the schema; do not run DDL and COMMIT per API request.
+        return PgVectorRepository(session, initialize_schema=False)
     from agent_memory.db.repository import MemoryRepository
 
     return MemoryRepository(session)

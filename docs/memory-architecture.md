@@ -1,5 +1,11 @@
 # Agent Memory System — Architecture Sketch
 
+> **Design proposal, not a list of shipped features.** The current code has
+> SQLite/Postgres memory storage, ingestion, hybrid retrieval, agent tools,
+> and evaluation suites. Redis working memory, entity-graph traversal,
+> expiration jobs, hosted authentication, and verified answer citations are
+> not implemented. See the [README](../README.md) for the runnable system.
+
 Personal knowledgebase + agent memory substrate for Simon's projects
 (agentic OS / Telegram bot, trading bot). One storage layer, three consumers:
 second brain UI, agentic OS supervisor/worker agents, trading bot agent.
