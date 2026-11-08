@@ -2,6 +2,7 @@
 
 import base64
 import json
+import logging
 
 import httpx
 import numpy as np
@@ -193,3 +194,51 @@ def test_cli_search_uses_existing_retrieval_and_emits_sources(tmp_path, monkeypa
     assert results[0]["repository"] == "example/repo-42"
     assert results[0]["url"] == "https://github.com/example/repo-42"
     assert results[0]["description"] == "RAG citation evaluation"
+
+
+@pytest.mark.parametrize("outcome", ["success", "http_error", "network_error", "value_error"])
+def test_cli_never_exposes_auth_token(tmp_path, monkeypatch, capsys, caplog, outcome):
+    """A token must not enter the memory DB, stdout, stderr, or debug logs."""
+    from agent_memory.integrations import github_stars
+
+    token = "sentinel-not-a-real-token"
+    monkeypatch.setenv("GITHUB_TOKEN", token)
+    repo = make_eval_repo(f"sqlite:///{tmp_path}/secrets.db")
+    monkeypatch.setattr(cli, "_repo_and_embedder", lambda: (repo, CountingEmbedder()))
+
+    def handler(request):
+        assert request.url.host == "api.github.com"
+        assert request.headers.get("authorization") == f"Bearer {token}"
+        if outcome == "http_error":
+            return httpx.Response(403, text=f"Sensitive response containing {token}")
+        if outcome == "network_error":
+            raise httpx.ConnectError(f"Sensitive transport failure containing {token}")
+        if outcome == "value_error":
+            raise ValueError(f"Sensitive parsing failure containing {token}")
+        return httpx.Response(200, json=[star(7)])
+
+    original_client = GitHubStarsClient
+    monkeypatch.setattr(
+        github_stars,
+        "GitHubStarsClient",
+        lambda token: original_client(token=token, transport=httpx.MockTransport(handler)),
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        exit_code = cli.main(["stars", "sync", "--user", "alice", "--limit", "1"])
+    captured = capsys.readouterr()
+    assert token not in captured.out + captured.err + caplog.text
+
+    if outcome == "success":
+        assert exit_code == 0
+        memory = repo.get_by_external_id("github:7", namespace="github-stars:alice")
+        assert token not in memory.content + json.dumps(memory.metadata)
+    else:
+        assert exit_code == 1
+        assert "sync failed" in captured.err
+        expected_error = {
+            "http_error": "HTTP 403",
+            "network_error": "network request error",
+            "value_error": "invalid input or GitHub repository data",
+        }[outcome]
+        assert expected_error in captured.err

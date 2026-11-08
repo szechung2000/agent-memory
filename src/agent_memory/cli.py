@@ -114,8 +114,19 @@ def cmd_stars_sync(args: argparse.Namespace) -> int:
                 include_readmes=args.readmes,
                 max_repos=args.limit,
             )
-    except (httpx.HTTPError, ValueError) as exc:
-        print(f"GitHub stars sync failed: {exc}", file=sys.stderr)
+    except httpx.HTTPStatusError as exc:
+        # The response body and exception text are not safe to log: they may
+        # contain request details or credentials supplied by a remote service.
+        print(
+            f"GitHub stars sync failed: GitHub API returned HTTP {exc.response.status_code}",
+            file=sys.stderr,
+        )
+        return 1
+    except httpx.RequestError:
+        print("GitHub stars sync failed: network request error", file=sys.stderr)
+        return 1
+    except ValueError:
+        print("GitHub stars sync failed: invalid input or GitHub repository data", file=sys.stderr)
         return 1
     print(
         f"seen: {stats.seen}  added: {stats.added}  "

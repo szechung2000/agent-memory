@@ -31,16 +31,13 @@ Requires Python 3.11+ and `uv` (the project's normal development environment).
 ```bash
 uv sync --all-groups
 
-# Optional but recommended for hundreds of stars. Use a credential manager or
-# existing environment configuration, not a token committed to the repository.
-export GITHUB_TOKEN="<token>"
-
-# First pass: descriptions, topics, language, license; fast and inexpensive.
+# Public stars need no token. First pass: metadata only, no README requests.
 uv run am stars sync --user szechung2000
 
-# Optional enrichment: first 3,000 characters of each README.
-# Run with care if the configured embedder is a paid API.
-uv run am stars sync --user szechung2000 --readmes
+# For hundreds of stars or README enrichment, use your existing GitHub CLI
+# credential store (run `gh auth login` once if needed). No token literal enters
+# the command or shell history. Scope the credential to this one command.
+GITHUB_TOKEN="$(gh auth token)" uv run am stars sync --user szechung2000 --readmes
 
 # Shared discovery command for coding agents.
 uv run am stars search "build a RAG system with citations" --user szechung2000 --json
@@ -55,6 +52,13 @@ run the same search command.
 The API supports public starred lists without a token. Authenticated access is
 recommended for large lists and README enrichment to avoid the lower anonymous
 rate limit. Authentication is read-only; the token is never saved to memory.
+The adapter reads `GITHUB_TOKEN`, then `GH_TOKEN`, from the environment. If you
+use a dedicated fine-grained token, keep it in an OS credential manager or
+secret manager, with only the permissions needed to read your stars. Never
+commit it, paste it into a shell command, or store it in project `.env` files.
+`gh auth token` uses the permissions of your existing GitHub CLI login, which
+may be broader than this adapter needs. The CLI prints only a safe HTTP status
+or a generic network error, not HTTP response bodies or authorization headers.
 
 Use `--limit 20` for a small trial sync. `--readmes` adds one API request for each
 repository without a current excerpt, or whose push timestamp has changed. When
