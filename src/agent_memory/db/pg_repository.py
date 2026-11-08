@@ -169,6 +169,18 @@ class PgVectorRepository:
             created_at=row["created_at"],
         )
 
+    def get_by_external_id(
+        self, external_id: str, *, namespace: str, user_id: str = "local"
+    ) -> Memory | None:
+        row = self.session.execute(
+            text(
+                "SELECT id FROM memories WHERE external_id = :external_id "
+                "AND namespace = :namespace AND user_id = :user_id"
+            ),
+            {"external_id": external_id, "namespace": namespace, "user_id": user_id},
+        ).mappings().first()
+        return self.get(row["id"]) if row else None
+
     def update_metadata(self, memory_id: str, metadata: dict) -> None:
         import json as _json
 

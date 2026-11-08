@@ -272,6 +272,23 @@ do not deploy it on a public network as-is.
 
 ## Agent and CLI interfaces
 
+### Find solutions in your starred GitHub repositories
+
+The optional, read-only [GitHub Stars adapter](docs/github-stars.md) imports repository
+descriptions, topics, languages, licenses, and optional README excerpts into the **existing**
+memory store. There is no separate catalog database or search service. Codex and Claude Code
+can call the same CLI before implementing a feature:
+
+```bash
+uv run am stars sync --user szechung2000
+uv run am stars search "RAG reranking with citations" --user szechung2000 --json
+```
+
+Set `GITHUB_TOKEN` for authenticated API limits; `--readmes` opts into fetching README excerpts.
+The adapter does not clone repositories, execute code, or install dependencies. Results are
+discovery leads, not validated implementation recommendations. See the guide for setup,
+incremental refresh behavior, and reusable agent instructions.
+
 An LLM caller can pass the exposed function schemas to its tool-calling API:
 
 ```python

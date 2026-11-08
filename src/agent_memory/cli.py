@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -91,6 +92,77 @@ def cmd_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stars_sync(args: argparse.Namespace) -> int:
+    import httpx
+
+    from agent_memory.integrations.github_stars import (
+        GitHubStarsClient,
+        stars_namespace,
+        sync_stars,
+        token_from_environment,
+    )
+
+    try:
+        stars_namespace(args.user)
+        repo, embedder = _repo_and_embedder()
+        with GitHubStarsClient(token=token_from_environment()) as client:
+            stats = sync_stars(
+                repo,
+                embedder,
+                client,
+                args.user,
+                include_readmes=args.readmes,
+                max_repos=args.limit,
+            )
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"GitHub stars sync failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"seen: {stats.seen}  added: {stats.added}  "
+        f"updated: {stats.updated}  unchanged: {stats.unchanged}"
+    )
+    return 0
+
+
+def cmd_stars_search(args: argparse.Namespace) -> int:
+    from agent_memory.integrations.github_stars import stars_namespace
+
+    try:
+        namespace = stars_namespace(args.user)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    repo, embedder = _repo_and_embedder()
+    qvec = embedder.embed([args.query])[0]
+    results = repo.recall(qvec, args.query, k=args.k, namespace=namespace)
+    items = [
+        {
+            "repository": m.metadata["full_name"],
+            "url": m.metadata["source"],
+            "description": m.metadata["description"],
+            "language": m.metadata["language"],
+            "license": m.metadata["license"],
+            "archived": m.metadata["archived"],
+            "pushed_at": m.metadata["pushed_at"],
+            "score": round(score, 4),
+            "summary": m.content,
+        }
+        for m, score in results
+    ]
+    if args.json:
+        print(json.dumps(items, indent=2))
+    elif not items:
+        print("no starred repositories indexed; run 'am stars sync' first")
+    else:
+        for item in items:
+            print(
+                f"{item['repository']} (rank score {item['score']:.3f})\n"
+                f"  {item['url']}\n  {item['description']}\n"
+                f"  language: {item['language']}  license: {item['license'] or 'unknown'}"
+            )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="am", description="agent-memory CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -116,6 +188,22 @@ def main(argv: list[str] | None = None) -> int:
     p_hist = sub.add_parser("eval-history", help="show golden-eval score trends")
     p_hist.add_argument("--limit", type=int, default=10)
     p_hist.set_defaults(func=cmd_history)
+
+    p_stars = sub.add_parser("stars", help="discover starred GitHub repositories")
+    stars_sub = p_stars.add_subparsers(dest="stars_command", required=True)
+
+    p_stars_sync = stars_sub.add_parser("sync", help="import or refresh a user's GitHub stars")
+    p_stars_sync.add_argument("--user", required=True, help="GitHub username")
+    p_stars_sync.add_argument("--readmes", action="store_true", help="also index README excerpts")
+    p_stars_sync.add_argument("--limit", type=int, help="maximum number of repositories to sync")
+    p_stars_sync.set_defaults(func=cmd_stars_sync)
+
+    p_stars_find = stars_sub.add_parser("search", help="find similar starred repositories")
+    p_stars_find.add_argument("query", help="describe the feature or project")
+    p_stars_find.add_argument("--user", required=True, help="GitHub username")
+    p_stars_find.add_argument("--k", type=int, default=5)
+    p_stars_find.add_argument("--json", action="store_true", help="output machine-readable results")
+    p_stars_find.set_defaults(func=cmd_stars_search)
 
     args = parser.parse_args(argv)
     return args.func(args)

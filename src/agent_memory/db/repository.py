@@ -86,6 +86,19 @@ class MemoryRepository:
         row = self.session.get(MemoryRow, memory_id)
         return _to_model(row) if row else None
 
+    def get_by_external_id(
+        self, external_id: str, *, namespace: str, user_id: str = "local"
+    ) -> Memory | None:
+        """Look up a source record without running a semantic search."""
+        row = self.session.scalar(
+            select(MemoryRow).where(
+                MemoryRow.user_id == user_id,
+                MemoryRow.namespace == namespace,
+                MemoryRow.external_id == external_id,
+            )
+        )
+        return _to_model(row) if row else None
+
     def update_metadata(self, memory_id: str, metadata: dict) -> None:
         row = self.session.get(MemoryRow, memory_id)
         if row:
